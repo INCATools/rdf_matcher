@@ -1,0 +1,306 @@
+#!/usr/bin/env swipl -G12g
+
+:- initialization main.
+
+:- use_module(library(rdf_matcher)).
+:- use_module(library(rdf_matcher/rule_inference)).
+
+:- use_module(library(main)).
+:- use_module(library(optparse)).
+:- use_module(library(option)).
+
+:- use_module(library(sparqlprog/io_utils)).
+%:- use_module(library(rule_eval)).
+:- use_module(library(index_util)).
+
+:- use_module(library(semweb/rdf_library)).
+:- use_module(library(semweb/rdf_http_plugin)).
+:- use_module(library(semweb/rdf_cache)).
+:- use_module(library(semweb/rdf_zlib_plugin)).
+:- use_module(library(semweb/rdf11)).
+:- use_module(library(semweb/rdfs)).
+
+% note: when we switc to swipl 7.8 consider using new stack options
+%:- set_prolog_flag(stack_limit,'0G').
+%:- set_prolog_stack(global, limit(1)).
+
+% TODO: make configurable
+:- rdf_set_cache_options([ global_directory('RDF-Cache'),
+                           create_global_directory(true)
+                         ]).
+
+
+
+main(Argv) :-
+        Spec =
+        [
+         [opt(output), type(atom),
+          longflags(['output']),
+          shortflags([o]),
+          help('Outfile')
+         ],
+         [opt(format), type(atom),
+          longflags(['format']),
+          shortflags([f]),
+          help('Output format: csv')
+         ],
+         [opt(input), type(atom),
+          longflags(['input']),
+          shortflags([i]),
+          help('Input RDF file (use in combo with -x)')
+         ],
+         [opt(indexdir), type(atom),
+          longflags(['indexdir']),
+          shortflags(['X']),
+          help('path to directory to be used for materializing index')
+         ],
+         [opt(prefix), type(atom),
+          longflags(['prefix']),
+          shortflags([p]),
+          help('Prefix to perform matching against')
+         ],
+         [opt(ontology), type(atom),
+          longflags(['ontology']),
+          help('Prefix of ontology to be compared against; note if using indexes this will be filtered prior')
+         ],
+         [opt(goal), type(term),
+          longflags([goal]),
+          shortflags([g]),
+          help('Prolog goal to call')
+         ],
+         [opt(consult), type(atom),
+          longflags([consult]),
+          shortflags([c]),
+          help('Prolog program to load/consult')
+         ],
+         [opt(use), type(atom),
+          longflags([use]),
+          shortflags([u]),
+          help('Prolog module to use')
+         ],
+         [opt(use_no_import), type(atom),
+          longflags([use_no_import]),
+          shortflags(['U']),
+          help('Prolog module to use, do not import all')
+         ],
+         [opt(debug), type(term),
+          longflags([debug]),
+          shortflags([d]),
+          help('term passed to debug/1')
+         ],
+         [opt(attach), type(atom),
+          longflags([attach]),
+          shortflags(['A']),
+          help('rdf_attach_library - path to void.ttl')
+         ],
+         [opt(service), type(atom),
+          longflags([service]),
+          shortflags([s]),
+          help('name of remote service to query')
+         ],
+         [opt(inject_labels),
+          type(boolean),
+          default(false),
+          longflags([label]),
+          shortflags([l]),
+          help('Inject query for rdfs labels into query')
+         ],
+         [opt(obsoletes),
+          type(boolean),
+          default(false),
+          longflags([obsoletes]),
+          help('If set, include obsoletes in results')
+         ],
+         [opt(show),
+          type(boolean),
+          default(false),
+          longflags([show]),
+          shortflags(['S']),
+          help('Show SPARQL query')
+         ],
+         [opt(interactive),
+          type(boolean),
+          default(false),
+          longflags([interactive]),
+          shortflags(['I']),
+          help('Interactive prolog')
+         ],
+         [opt(compile),
+          type(boolean),
+          default(false),
+          longflags([compile]),
+          shortflags(['C']),
+          help('Compile Prolog to SPARQL (no execution)')
+         ],
+         [opt(verbose),
+          type(boolean),
+          default(false),
+          longflags([verbose]),
+          shortflags([v]),
+          help('Same as --debug sparqlprog')
+         ],
+         [opt(stacktrace),
+          type(boolean),
+          default(false),
+          longflags([stacktrace]),
+          shortflags(['T']),
+          help('Shows stack trace on error')
+         ],
+         [opt(execute),
+          type(boolean),
+          default(false),
+          longflags([execute]),
+          shortflags([e]),
+          help('Executes query directly in prolog')
+         ],
+         [opt(query), type(term),
+          longflags([query]),
+          shortflags([q]),
+          help('Prolog query')
+         ]
+        ],
+        opt_parse(Spec, Argv, Opts, Rest, [duplicated_flags(keepall)]),
+        handle_opts(Opts),
+        inject_prefixes,
+        option(indexdir(IndexDir),Opts,none),
+        index_pairs(IndexDir),
+        opt_if_call(interactive,prolog_shell,Opts),
+        run(Rest, Opts).
+
+run([learn|_Args], _) :-
+        materialize_index(eq_from_match(+,+,-,-,-,-,-)),
+        materialize_index(eq_from_shared_xref(+,+,-,-,-)),
+        ground_rules(Rules),
+        show_rules(Rules).
+
+run([match|_Args], Opts) :-
+        G = inter_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).
+
+run([new_match|_Args], Opts) :-
+        G = new_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).        
+
+run([unique_match|_Args], Opts) :-
+        G = new_unique_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).
+
+run([cluster|_Args], Opts) :-
+        materialize_index(new_unique_pair_match(+,+,-,-)),
+        materialize_index(transitive_match(+,+)),
+        G = transitive_match_set_member(X,_),
+        write_all_results(X,G,Opts).
+
+write_all_results(X,G,Opts) :-
+        debug(rdf_matcher,'Goal=~q',[G]),
+        opt_query_constraint_pre(X,PreG,Opts),
+        opt_query_constraint_post(X,G,PostG,Opts),
+        forall((PreG,G,PostG),
+               write_result_wrap(G,Opts)).
+
+write_result_wrap(G,Opts) :-
+        select(inject_labels(Inject),Opts,Opts2),
+        nonvar(Inject),
+        Inject,
+        !,
+        G =.. [P,A,B|Rest],
+        obj_label(A,NameA),
+        obj_label(B,NameB),
+        G2 =.. [P,A,NameA,B,NameB|Rest],
+        write_result_wrap(G2,Opts2).
+write_result_wrap(G,Opts) :-
+        write_result(G,Opts).
+
+obj_label(X,N) :-
+        rdf(X,rdfs:label,N),
+        !.
+obj_label(_,'') :- !.
+
+
+
+
+opt_query_constraint_pre(X,G,Opts) :-
+        option(prefix(Prefix),Opts),
+        nonvar(Prefix),
+        nonvar(X),
+        !,
+        G=obj_has_prefix(X,Prefix).
+opt_query_constraint_pre(_,true,_).
+opt_query_constraint_post(_,G,PostG,Opts) :-
+        option(obsoletes(Obs),Opts),
+        Obs=false,
+        G =.. [_,A,B|_],
+        !,
+        PostG = (is_not_obsolete(A),is_not_obsolete(B)).
+opt_query_constraint_post(_,_,true,_).
+
+is_not_obsolete(X) :-
+        \+ rdf(X,owl:deprecated,_).
+
+show_rules(Rs) :-
+        use_module(library(rule_eval)),
+        eval_rules(Rs,Pairs),
+        forall(member(P,Pairs),
+               show_rule(P)).
+
+:- op(1200, xfy, ::).
+
+show_rule(R-Scores) :-
+        memberchk(precision(Pr),Scores),
+        wrule( Pr::R ),
+        format('%% Scores: ~q.~n',[Scores]),
+        nl.
+
+wrule(R) :-
+        copy_term(R,R2),
+        numbervars(R2,0,_,[]),
+        format('~q.~n',[R2]).
+
+
+handle_opts(Opts) :-
+        opt_if_call(verbose,debug(rdf_matcher),Opts),
+        opt_if_call(verbose,debug(index),Opts),
+        opt_if_call(verbose,debug(rule_eval),Opts),
+        opt_if_call(stacktrace,use_module(library(sparqlprog/stacktrace)),Opts),
+        opt_forall(attach(X),rdf_attach_library(X),Opts),
+        opt_forall(debug(X),debug(X),Opts),
+        opt_forall(use(X),use_module(library(X)),Opts),
+        opt_forall(use_no_import(X),use_module(library(X),[]),Opts),
+        opt_forall(ontology(Prefix),set_ontology(Prefix),Opts),
+        opt_forall(consult(X),consult(X),Opts),
+        opt_forall(input(X),rdf_load_wrap(X),Opts),
+        opt_forall(goal(X),X,Opts).
+
+
+% execute a goal for every ground instance of Template
+opt_forall(Template,Goal,Opts) :-
+        debug(sparqlprog,'Running ~q for all ground ~q in ~q',[Goal,Template,Opts]),
+        forall((member(Template,Opts),ground(Template)),
+               Goal).
+
+opt_if_call(Opt,Goal,Opts) :-
+        T =.. [Opt,Var],
+        member(T,Opts),
+        ground(Var),
+        Var=true,
+        !,
+        Goal.
+opt_if_call(_,_,_).
+
+opt_if(T,Opts) :-
+        member(T,Opts),
+        ground(T),
+        !.
+opt_if(T,Opts,Opts2) :-
+        select(T,Opts,Opts2),
+        ground(T),
+        !.
+
+
+
+rdf_load_wrap(X) :-
+        catch(rdf_load(X),
+              _E,
+              rdf_load_library(X)).
+
+
