@@ -1,0 +1,93 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix   z: <http://example.org/z/> .
+@prefix   y: <http://example.org/y/> .
+@prefix   x: <http://example.org/x/> .
+
+# Named toplevel resources (24)
+
+x:appendage
+	owl:equivalentClass y:appendage ,
+			    z:appendage .
+
+x:bone_element
+	owl:equivalentClass y:bone ,  z:bone_element .
+
+x:bone_tissue
+	owl:equivalentClass y:bone ,
+			    z:bone_tissue .
+
+x:eye
+	owl:equivalentClass y:eye ,
+			    z:eye .
+
+x:eyeball
+	owl:equivalentClass z:eyeball .
+
+x:foot
+	owl:equivalentClass y:foot ,
+			    z:foot .
+
+x:hand
+	owl:equivalentClass y:hand ,
+			    z:hand .
+
+x:heart
+	owl:equivalentClass y:heart ,
+    z:heart .
+    
+
+x:liver
+	owl:equivalentClass y:liver ,
+    z:liver .
+    
+
+x:lung
+	owl:equivalentClass y:lung ,
+    z:lung .
+    
+
+x:organ
+	owl:equivalentClass y:organ ,
+			    z:organ .
+
+x:region
+	owl:equivalentClass y:region ,
+			    z:region .
+
+x:tissue
+	owl:equivalentClass y:tissue ,
+			    z:tissue .
+
+y:appendage
+	owl:equivalentClass z:appendage .
+
+y:bone
+    owl:equivalentClass z:bone_element .
+    
+
+y:eye
+	owl:equivalentClass z:eye .
+
+y:foot
+	owl:equivalentClass z:foot .
+
+y:hand
+	owl:equivalentClass z:hand .
+
+y:heart
+	owl:equivalentClass z:heart .
+
+y:liver
+	owl:equivalentClass z:liver .
+
+y:lung
+	owl:equivalentClass z:lung .
+
+y:organ
+	owl:equivalentClass z:organ .
+
+y:region
+	owl:equivalentClass z:region .
+
+y:tissue
+	owl:equivalentClass z:tissue .
