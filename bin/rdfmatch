@@ -165,7 +165,8 @@ main(Argv) :-
         option(indexdir(IndexDir),Opts,none),
         index_pairs(IndexDir),
         opt_if_call(interactive,prolog_shell,Opts),
-        run(Rest, Opts).
+        run(Rest, Opts),
+        halt.
 
 run([learn|_Args], _) :-
         materialize_index(eq_from_match(+,+,-,-,-,-,-)),

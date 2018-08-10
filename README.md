@@ -2,6 +2,8 @@
 
 ## Command Line Usage
 
+(see below for use via Docker)
+
 To run these examples, first:
 
 `cd tests/data`
@@ -32,3 +34,10 @@ Note this requires a training set - `owl:equivalentClass` is used for this
 ## Cacheing
 
 The library index_util is used for caching. Optionally this can go to disk
+
+## Docker
+
+Use `./run.sh` instead of `rdfmatch`. E.g.
+
+`./run.sh  -p x  -f tsv -i tests/data/basic.ttl match`
+
