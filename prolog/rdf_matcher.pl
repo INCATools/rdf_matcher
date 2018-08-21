@@ -181,6 +181,7 @@ inter_pair_match(C1,C2,V,Info) :-
         has_prefix(C1,Pfx1),
         has_prefix(C2,Pfx2),
         Pfx1 \= Pfx2.
+inter_pair_match(null,null,null,null).
 
 inter_pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C1,C1x),
