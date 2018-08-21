@@ -118,6 +118,13 @@ main(Argv) :-
           shortflags(['S']),
           help('Show SPARQL query')
          ],
+         [opt(prolog),
+          type(boolean),
+          default(false),
+          longflags([prolog]),
+          shortflags(['P']),
+          help('Interactive prolog')
+         ],
          [opt(interactive),
           type(boolean),
           default(false),
@@ -164,7 +171,8 @@ main(Argv) :-
         inject_prefixes,
         option(indexdir(IndexDir),Opts,none),
         index_pairs(IndexDir),
-        opt_if_call(interactive,prolog_shell,Opts),
+        opt_if_call(interactive,sparqlprog_shell(Opts),Opts),
+        opt_if_call(prolog,prolog_shell(Opts),Opts),
         run(Rest, Opts),
         halt.
 
@@ -182,16 +190,35 @@ run([new_match|_Args], Opts) :-
         G = new_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).        
 
+run([tri_match|_Args], Opts) :-
+        G = tri_match(C1,_C2,_C3,_Info),
+        write_all_results(C1,G,Opts).        
+
+run([rightnew_match|_Args], Opts) :-
+        G = rightnew_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).        
+
 run([unique_match|_Args], Opts) :-
         G = new_unique_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).
 
 run([cluster|_Args], Opts) :-
-        materialize_index(new_unique_pair_match(+,+,-,-)),
-        materialize_index(transitive_match(+,+)),
-        G = transitive_match_set_member(X,_),
+        materialize_index(new_pair_match(+,+,-,-)),
+        materialize_index(transitive_unique_match(+,+)),
+        G = transitive_new_match_set_pair(X,_,_),
         write_all_results(X,G,Opts).
 
+run([ucluster|_Args], Opts) :-
+        materialize_index(new_unique_pair_match(+,+,-,-)),
+        materialize_index(transitive_new_match(+,+)),
+        G = transitive_unique_match_set_member(X,_),
+        write_all_results(X,G,Opts).
+
+%! write_all_results(?X, +Goal, +Opts:list) is det.
+%
+% writes value of X for every Goal
+%
+% also filters based on Opts
 write_all_results(X,G,Opts) :-
         debug(rdf_matcher,'Goal=~q',[G]),
         opt_query_constraint_pre(X,PreG,Opts),
@@ -204,10 +231,11 @@ write_result_wrap(G,Opts) :-
         nonvar(Inject),
         Inject,
         !,
-        G =.. [P,A,B|Rest],
+        G =.. [P,A,B,C|Rest],
         obj_label(A,NameA),
         obj_label(B,NameB),
-        G2 =.. [P,A,NameA,B,NameB|Rest],
+        obj_label(C,NameC),
+        G2 =.. [P,A,NameA,B,NameB,C,NameC|Rest],
         write_result_wrap(G2,Opts2).
 write_result_wrap(G,Opts) :-
         write_result(G,Opts).
@@ -218,15 +246,19 @@ obj_label(X,N) :-
 obj_label(_,'') :- !.
 
 
-
-
+% Unify G with a goal that succeeds
+% if X passes criteria specified in Opts.
+%
+% these are intended to be executed prior to
+% matching
 opt_query_constraint_pre(X,G,Opts) :-
         option(prefix(Prefix),Opts),
         nonvar(Prefix),
-        nonvar(X),
         !,
         G=obj_has_prefix(X,Prefix).
 opt_query_constraint_pre(_,true,_).
+
+% as above, but executed after the fact
 opt_query_constraint_post(_,G,PostG,Opts) :-
         option(obsoletes(Obs),Opts),
         Obs=false,
@@ -303,5 +335,39 @@ rdf_load_wrap(X) :-
         catch(rdf_load(X),
               _E,
               rdf_load_library(X)).
+
+% TODO: get from elsewhere
+sparqlprog_shell(Opts):-
+        format('% Starting pl2sparql shell~n'),
+        current_input(IO),
+        HFile='.sparqlprog_history',
+        (   exists_file(HFile)
+        ->  rl_read_history(HFile)
+        ;   true),
+        repeat,
+        read_line_to_codes(IO,Codes),
+        (   Codes=end_of_file
+        ->  !
+        ;   atom_codes(A,Codes),
+            rl_add_history(A),
+            format('Cmd: ~w~n',[A]),
+            concat_atom(L,' ',A),
+            catch(run(L,Opts),
+                  E,
+                  (   format('ERROR:~n~w~n',[E]),fail)),
+            format('SUCCESS!~n'),
+            rl_write_history(HFile),
+            fail).
+
+prolog_shell(_Opts):-
+        format('% Starting prolog shell~n'),
+        HFile='.plhistory',
+        (   exists_file(HFile)
+        ->  rl_read_history(HFile)
+        ;   true),
+        prolog,
+        format('% Bye!~n'),
+        rl_write_history(HFile),
+        halt.
 
 
