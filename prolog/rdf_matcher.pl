@@ -5,7 +5,8 @@
            obj_has_prefix/2,
            equivalent/2,
            set_ontology/1,
-           
+
+           mutate/4,
            tr_annot/6,
            has_prefix/2,
            used_prefix/1,
@@ -18,14 +19,21 @@
            inter_pair_cmatch/4,
            new_pair_match/4,
            new_pair_cmatch/4,
+           rightnew_pair_match/4,
+           rightnew_pair_cmatch/4,
            new_unique_pair_match/4,
            new_unique_pair_cmatch/4,
            new_ambiguous_pair_match/6,
            new_ambiguous_pair_cmatch/6,
 
-           transitive_match/2,
-           transitive_match_set/1,
-           transitive_match_set_member/2,
+           tri_match/4,
+
+           transitive_unique_match/2,
+           transitive_unique_match_set/1,
+           transitive_unique_match_set_member/2,
+
+           transitive_new_match/2,
+           transitive_new_match_set_pair/3,
 
            eq_from_match/7,
            eq_from_shared_xref/5
@@ -38,6 +46,8 @@
 
 :- use_module(library(settings)).
 :- setting(ontology, atom,'','').
+
+:- rdf_register_prefix(skos, 'http://www.w3.org/2004/02/skos/core#').
 
 set_ontology(Ont) :-
         debug(rdf_matcher, 'Setting ontology to ~w',[Ont]),
@@ -191,7 +201,23 @@ new_pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C2,C2x),
         new_pair_match(C1x,C2x,V,Info).
 
+% satisfied if C1 and C2 match
+% AND C2 has no other match in the same namespace as C1
+:- rdf_meta rightnew_pair_match(r,r,-,-).
+rightnew_pair_match(C1,C2,V,Info) :-
+        inter_pair_match(C1,C2,V,Info),
+        has_prefix(C1,Pfx1),
+        unmatched_in(C2, Pfx1).
 
+rightnew_pair_cmatch(C1,C2,V,Info) :-
+        rdf_global_id(C1,C1x),
+        rdf_global_id(C2,C2x),
+        rightnew_pair_match(C1x,C2x,V,Info).
+
+
+% satisfied if C1 and C2 match
+% AND C2 has no other match in the same namespace as C1
+% AND C1 has no other match in the same namespace as C2
 :- rdf_meta new_unique_pair_match(r,r,-,-).
 new_unique_pair_match(C1,C2,V,Info) :-
         new_pair_match(C1,C2,V,Info),
@@ -203,6 +229,18 @@ new_unique_pair_match(C1,C2,V,Info) :-
         \+ ((pair_match(AltC1,C2,_,_)),
             AltC1\=C1,
             has_prefix(AltC1,Pfx1)).
+
+tri_match(C1,C2,C3,Info) :-
+        new_unique_pair_match(C1,C2,_,_),
+        new_unique_pair_match(C2,C3,_,_),
+        C3\=C1,
+        (   equivalent(C1,C3)
+        ->  Info=agree
+        ;   (   new_unique_pair_match(C1,C3,_,_)
+            ->  Info=all_match
+            ;   Info=mismatch)).
+
+        
 
 new_unique_pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C1,C1x),
@@ -228,25 +266,59 @@ new_ambiguous_pair_cmatch(C1,C2,AltC1,AltC2,V,Info) :-
         rdf_global_id(C2,C2x),
         new_ambiguous_pair_match(C1x,C2x,AltC1,AltC2,V,Info).
 
-:- table transitive_match/2.
-transitive_match(A,B) :-
+/*
+  UNIQUE MATCH CLUSTERS
+*/
+
+:- table transitive_unique_match/2.
+transitive_unique_match(A,B) :-
         new_unique_pair_match(A,Z,_,_),
-        transitive_match(Z,B).
-transitive_match(A,B) :-
+        transitive_unique_match(Z,B).
+transitive_unique_match(A,B) :-
         new_unique_pair_match(A,B,_,_).
 
-transitive_match_set(Bs) :-
+transitive_unique_match_set(Bs) :-
         obj(A),
-        setof(B,transitive_match(A,B),Bs),
+        setof(B,transitive_unique_match(A,B),Bs),
         Bs=[_,_,_|_],
         \+ ((member(Z,Bs),
             equivalent(Z,_))).
 
-transitive_match_set_member(X,M) :-
-        transitive_match_set(Set),
+%! transitive_unique_match_set_member(?X, ?M) is nondet
+%
+%  X is the reference member of a clique, and M is a member
+%
+transitive_unique_match_set_member(X,M) :-
+        transitive_unique_match_set(Set),
         member(M,Set),
         Set=[X|_].
 
+/*
+  NEW MATCH CLUSTERS
+*/
+
+:- table transitive_new_match/2.
+transitive_new_match(A,B) :-
+        new_pair_match(A,Z,_,_),
+        transitive_new_match(Z,B).
+transitive_new_match(A,B) :-
+        new_pair_match(A,B,_,_).
+
+transitive_new_match_set(Bs) :-
+        obj(A),
+        setof(B,transitive_new_match(A,B),Bs),
+        Bs=[_,_,_|_].
+transitive_new_match_set_member(X,M) :-
+        transitive_new_match_set(Set),
+        member(M,Set),
+        Set=[X|_].
+transitive_new_match_set_pair(X,A,B) :-
+        transitive_new_match_set(Set),
+        Set=[X|_],
+        member(A,Set),
+        member(B,Set),
+        A@<B,
+        new_pair_match(A,B,_,_).
 
 
 
@@ -286,7 +358,7 @@ defrag(X,U,Frag) :-
 
 inject_prefixes :-
         (   used_prefixes(Ps),
-            debug(rdf_matcher,'Found these prefiexes: ~w',[Ps]),
+            debug(rdf_matcher,'Found these prefixes: ~w',[Ps]),
             Ps\=[_,_|_]
         ->  force_inject_prefixes
         ;   true).
@@ -307,6 +379,8 @@ force_inject_prefixes :-
         
 equivalent(C1,C2) :- rdf(C1,owl:equivalentClass,C2).
 equivalent(C1,C2) :- rdf(C2,owl:equivalentClass,C1).
+equivalent(C1,C2) :- rdf(C1,skos:exactMatch,C2).
+equivalent(C1,C2) :- rdf(C2,skos:exactMatch,C1).
 
 obj_has_prefix(C,P) :- obj(C),has_prefix(C,P).
 
