@@ -68,5 +68,10 @@ test(load) :-
         
         nl.
 
+test(cluster) :-
+        forall(transitive_new_match_set_pair(X,_,_),
+               writeln(X)).
+
+
 :- end_tests(rdf_matcher).
     

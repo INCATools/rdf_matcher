@@ -29,9 +29,14 @@
                            create_global_directory(true)
                          ]).
 
-
-
 main(Argv) :-
+        catch(wmain(Argv),
+              E,
+              (   format(user_error,'~q~n',[E]),
+                  halt(1))),
+        halt.
+
+wmain(Argv) :-
         Spec =
         [
          [opt(output), type(atom),
@@ -62,6 +67,14 @@ main(Argv) :-
          [opt(ontology), type(atom),
           longflags(['ontology']),
           help('Prefix of ontology to be compared against; note if using indexes this will be filtered prior')
+         ],
+         [opt(ontA), type(atom),
+          longflags(['ontA']),
+          help('Prefix1 of ontology in match (for learning)')
+         ],
+         [opt(ontB), type(atom),
+          longflags(['ontB']),
+          help('Prefix2 of ontology in match (for learning)')
          ],
          [opt(goal), type(term),
           longflags([goal]),
@@ -168,19 +181,29 @@ main(Argv) :-
         ],
         opt_parse(Spec, Argv, Opts, Rest, [duplicated_flags(keepall)]),
         handle_opts(Opts),
+        debug(rdf_matcher,'Opts = ~q.',[Opts]),
         inject_prefixes,
         option(indexdir(IndexDir),Opts,none),
         index_pairs(IndexDir),
         opt_if_call(interactive,sparqlprog_shell(Opts),Opts),
         opt_if_call(prolog,prolog_shell(Opts),Opts),
-        run(Rest, Opts),
-        halt.
+        run(Rest, Opts).
 
-run([learn|_Args], _) :-
-        materialize_index(eq_from_match(+,+,-,-,-,-,-)),
-        materialize_index(eq_from_shared_xref(+,+,-,-,-)),
-        ground_rules(Rules),
-        show_rules(Rules).
+
+run([learn|_Args], Opts) :-
+        materialize_index(eq_from_match(+,+,-,-,-,+,+)),
+        optional(materialize_index(eq_from_shared_xref(+,+,-,+,+))),
+        debug(rdf_matcher,'Grounding',[]),
+        ground_rules(Rules, Opts),
+        debug(rdf_matcher,'Eval rules',[]),
+        eval_and_show_rules(Rules).
+
+run([classify, WeightFile | _Args], Opts) :-
+        use_module(library(rule_eval)),
+        consult(WeightFile),
+        forall(infer_fact(equivalent(X,Y),_,W),
+               write_result(eq(X,Y,W,foo),Opts)).
+%               format('eq\t~w\t~w\t~w\tlearned~n',[X,Y,W])).
 
 run([match|_Args], Opts) :-
         G = inter_pair_match(X,_,_,_Info),
@@ -193,6 +216,9 @@ run([new_match|_Args], Opts) :-
 run([tri_match|_Args], Opts) :-
         G = tri_match(C1,_C2,_C3,_Info),
         write_all_results(C1,G,Opts).        
+run([triad_nc|_Args], Opts) :-
+        G = new_unique_match_triad_nc(C1,_C2,_C3),
+        write_all_results(C1,G,Opts).        
 
 run([rightnew_match|_Args], Opts) :-
         G = rightnew_pair_match(X,_,_,_Info),
@@ -204,15 +230,25 @@ run([unique_match|_Args], Opts) :-
 
 run([cluster|_Args], Opts) :-
         materialize_index(new_pair_match(+,+,-,-)),
-        materialize_index(transitive_unique_match(+,+)),
+        %materialize_index(transitive_new_match(+,+)),
         G = transitive_new_match_set_pair(X,_,_),
         write_all_results(X,G,Opts).
 
 run([ucluster|_Args], Opts) :-
         materialize_index(new_unique_pair_match(+,+,-,-)),
-        materialize_index(transitive_new_match(+,+)),
+        %materialize_index(transitive_unique_match(+,+)),
         G = transitive_unique_match_set_member(X,_),
         write_all_results(X,G,Opts).
+
+run([trial|_Args], Opts) :-
+        materialize_index(new_unique_pair_match(+,+,-,-)),
+        G = new_unique_match_triad(X,_,_),
+        write_all_results(X,G,Opts).
+
+run([unmatched,Pfx|_Args], Opts) :-
+        G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
+        forall((G,obj_label(X,XN)),
+               write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
 
 %! write_all_results(?X, +Goal, +Opts:list) is det.
 %
@@ -268,18 +304,20 @@ opt_query_constraint_post(_,G,PostG,Opts) :-
 opt_query_constraint_post(_,_,true,_).
 
 is_not_obsolete(X) :-
-        \+ rdf(X,owl:deprecated,_).
+        \+ ((rdf_is_iri(X),rdf(X,owl:deprecated,_))).
 
-show_rules(Rs) :-
+eval_and_show_rules(Rs) :-
         use_module(library(rule_eval)),
+        debug(rdf_matcher,'Eval rules: ~q',[Rs]),
         eval_rules(Rs,Pairs),
+        debug(rdf_matcher,'Evaled all rules',[]),
         forall(member(P,Pairs),
                show_rule(P)).
 
 :- op(1200, xfy, ::).
 
 show_rule(R-Scores) :-
-        memberchk(precision(Pr),Scores),
+        memberchk(pr_true(Pr),Scores),
         wrule( Pr::R ),
         format('%% Scores: ~q.~n',[Scores]),
         nl.
@@ -307,7 +345,7 @@ handle_opts(Opts) :-
 
 % execute a goal for every ground instance of Template
 opt_forall(Template,Goal,Opts) :-
-        debug(sparqlprog,'Running ~q for all ground ~q in ~q',[Goal,Template,Opts]),
+        debug(rdf_matcher,'Running ~q for all ground ~q in ~q',[Goal,Template,Opts]),
         forall((member(Template,Opts),ground(Template)),
                Goal).
 
@@ -329,6 +367,8 @@ opt_if(T,Opts,Opts2) :-
         ground(T),
         !.
 
+optional(G) :- G,!.
+optional(_).
 
 
 rdf_load_wrap(X) :-

@@ -27,9 +27,15 @@ Cache index in a temp folder:
 
 Learn match rule probabilities:
 
-`rdfmatch  -p x   -X tmp -T -f tsv -v -i tests/data/basic.ttl -i tests/data/equivs.ttl  learn`
+`rdfmatch  -p x   -X tmp -T -f tsv -v -i tests/data/basic.ttl -i tests/data/equivs.ttl  learn > probrules.pro`
 
 Note this requires a training set - `owl:equivalentClass` is used for this
+
+Once you you created the probabilistic rules, these can be applied:
+
+`rdfmatch -f tsv -i tests/data/basic.ttl classify probrules.pro`
+
+
 
 ## Cacheing
 
