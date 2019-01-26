@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/13996/cmungall/rdf_matcher.svg)](https://zenodo.org/badge/latestdoi/13996/cmungall/rdf_matcher)
+
 # rdf matcher
 
 ## Command Line Usage
