@@ -15,6 +15,8 @@
            used_prefix/1,
            inject_prefixes/0,
 
+           match_is_inexact/1,
+
            create_bitmap_index/0,
            atom_bm/3,
            atom_semsim_match/4,
@@ -28,6 +30,7 @@
            pair_cmatch/4,
            inter_pair_match/4,
            inter_pair_cmatch/4,
+           exact_inter_pair_match/11,
            new_pair_match/4,
            new_pair_cmatch/4,
            rightnew_pair_match/4,
@@ -51,13 +54,16 @@
            eq_from_shared_xref/5,
 
            unmatched/1,
-           unmatched_in/2
+           unmatched_in/2,
+
+           remove_inexact_synonyms/0
            ]).
 
 :- use_module(library(porter_stem)).
 :- use_module(library(index_util)).
 :- use_module(library(tabling)).
 :- use_module(library(semweb/rdf11)).
+:- use_module(library(sparqlprog/owl_util)).
 
 :- use_module(library(settings)).
 :- setting(ontology, atom,'','').
@@ -107,6 +113,15 @@ pmap(narrow, skos:narrowMatch).
 
 pmap(xref, oio:hasDbXref).
 
+inexact(broad).
+inexact(narrow).
+inexact(related).
+
+match_is_inexact(info(P-_,_,_)) :- inexact(P),!.
+match_is_inexact(info(_-P,_,_)) :- inexact(P),!.
+match_is_inexact(info(_,_,stem)) :- !.
+        
+
 nonmut(xref).
 nonmut(id).
 
@@ -120,9 +135,14 @@ opt_literal_atom(L,A) :- literal_atom(L,A), !.
 opt_literal_atom(A,A) :- atomic(A).
 
 obj(Obj) :-
-        setof(Obj, rdf(Obj,rdf:type,owl:'Class'), Objs),
+        setof(Obj, rdf(Obj,_ , _), Objs),
         member(Obj,Objs),
         rdf_is_iri(Obj).
+
+%obj(Obj) :-
+%        setof(Obj, rdf(Obj,rdf:type,owl:'Class'), Objs),
+%        member(Obj,Objs),
+%        rdf_is_iri(Obj).
 
 
 %% basic_annot(?Object, ?AnnotProp, ?Val ,?RdfTripleTerm) is nondet
@@ -506,6 +526,53 @@ new_ambiguous_pair_cmatch(C1,C2,AltC1,AltC2,V,Info) :-
         rdf_global_id(C2,C2x),
         new_ambiguous_pair_match(C1x,C2x,AltC1,AltC2,V,Info).
 
+
+exact_inter_pair_match(C,X,V,Info) :-
+        inter_pair_match(C,X,V,Info),
+        \+ match_is_inexact(Info).
+        
+exact_inter_pair_match(C,X,CParents,XParents,Conf,V,Info,AltCs,AltXs,IgnoredCs,IgnoredXs) :-
+        exact_inter_pair_match(C,X,V,Info),
+        findall(X2,alt_exact_inter_pair_match(C,X,X2),AltXs),
+        findall(C2,alt_exact_inter_pair_match(X,C,C2),AltCs),
+        findall(X2,alt_inexact_inter_pair_match(C,X,X2),IgnoredXs),
+        findall(C2,alt_inexact_inter_pair_match(X,C,C2),IgnoredCs),
+        (   AltXs=[],
+            AltCs=[]
+        ->  (   IgnoredXs=[],
+                IgnoredCs=[]
+            ->  Conf=high
+            ;   Conf=medium)
+        ;   Conf=low),
+        findall(Parent,entity_parent(C,Parent),CParents),
+        findall(Parent,entity_parent(X,Parent),XParents).
+
+entity_parent(X,Parent) :-
+        rdf(X,rdfs:subClassOf,Parent),
+        rdf_is_iri(Parent).
+entity_parent(X,Parent) :-
+        subclass_of_some(X,R,Parent),
+        parent_relation(R).
+entity_parent(X,Parent) :-
+        rdf(X,R,Parent),
+        parent_relation(R).
+entity_parent(X,Parent) :-
+        rdf(X,rdf:type,Parent),
+        \+ rdf_global_id(rdf:_,Parent),
+        \+ rdf_global_id(rdfs:_,Parent),
+        \+ rdf_global_id(owl:_,Parent).
+
+
+alt_exact_inter_pair_match(C,X,X2) :-
+        exact_inter_pair_match(C,X2,_,_),
+        X2\=X.
+alt_inexact_inter_pair_match(C,X,X2) :-
+        inter_pair_match(C,X2,_,Info),
+        X2\=X,
+        match_is_inexact(Info).
+
+
+
 /*
   UNIQUE MATCH CLUSTERS
 */
@@ -622,9 +689,20 @@ defrag(X,U,Frag) :-
         reverse(Parts,[Frag|Rev]),
         reverse(Rev,Parts2),
         concat_atom(Parts2,'/',U).
-        
+
+declare_additional_prefixes :-
+        rdf(X,'http://www.w3.org/ns/shacl#prefix',^^(Prefix1,_)),
+        rdf(X,'http://www.w3.org/ns/shacl#namespace', ^^(NS1,_)),
+        atom_string(Prefix,Prefix1),
+        atom_string(NS,NS1),
+        rdf_register_prefix(Prefix, NS),
+        debug(rdf_matcher,'Registered ~w ~w',[Prefix,NS]),
+        fail.
+declare_additional_prefixes.
+
 
 inject_prefixes :-
+        declare_additional_prefixes,
         (   used_prefixes(Ps),
             debug(rdf_matcher,'Found these prefixes: ~w',[Ps]),
             Ps\=[_,_|_]
@@ -670,7 +748,23 @@ unmatched(C) :-
 %
 % true if Cls has no equivalent class with prefix ExtPrefix
 unmatched_in(C, ExtPrefix) :-
-        obj(C),
+        obj(C),  
         \+ ((equivalent(C,C2),
              has_prefix(C2, ExtPrefix))).
 
+
+remove_inexact_synonyms :-
+        T=rdf(_,P,_),
+        findall(T,
+                (   inexact(PN),
+                    pmap(PN,P),
+                    T),
+                Ts),
+        forall(member(rdf(S,P,O),Ts),
+               (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
+                   rdf_retractall(S,P,O))).
+
+
+parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
+parent_relation('http://purl.obolibrary.org/obo/RO:0001025').
+parent_relation('http://purl.obolibrary.org/obo/BFO_0000050').

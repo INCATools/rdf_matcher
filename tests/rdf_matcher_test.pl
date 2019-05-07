@@ -72,6 +72,15 @@ test(cluster) :-
         forall(transitive_new_match_set_pair(X,_,_),
                writeln(X)).
 
+test(exact) :-
+        G=exact_inter_pair_match(_,_,_,_,_,_,_,_,_,_,_),
+        forall(G,
+               writeln(G)).
+test(inexact) :-
+        forall((inter_pair_match(C,X,_,Info),
+                match_is_inexact(Info)),
+               writeln(inexact(C,X))).
+
 
 :- end_tests(rdf_matcher).
     

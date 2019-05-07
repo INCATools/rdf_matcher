@@ -13,6 +13,7 @@
 %:- use_module(library(rule_eval)).
 :- use_module(library(index_util)).
 
+:- use_module(library(sparqlprog/labelutils)).
 :- use_module(library(semweb/rdf_library)).
 :- use_module(library(semweb/rdf_http_plugin)).
 :- use_module(library(semweb/rdf_cache)).
@@ -209,6 +210,11 @@ run([match|_Args], Opts) :-
         G = inter_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).
 
+run([exact|_Args], Opts) :-
+        write_result_wrap(m(c1,c2,c1parents,c2parents,conf,match,info,alt_c1,alt_c2,ignored_c1,ignored_c2),Opts),
+        G = exact_inter_pair_match(X,_,_,_,_,_,_,_,_,_,_),
+        write_all_results(X,G,Opts).
+
 run([new_match|_Args], Opts) :-
         G = new_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).        
@@ -267,11 +273,7 @@ write_result_wrap(G,Opts) :-
         nonvar(Inject),
         Inject,
         !,
-        G =.. [P,A,B,C|Rest],
-        obj_label(A,NameA),
-        obj_label(B,NameB),
-        obj_label(C,NameC),
-        G2 =.. [P,A,NameA,B,NameB,C,NameC|Rest],
+        row_labelify(G,G2),
         write_result_wrap(G2,Opts2).
 write_result_wrap(G,Opts) :-
         write_result(G,Opts).
