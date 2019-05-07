@@ -1,6 +1,6 @@
 name(rdf_matcher).
 title('RDF matching utils').
-version('0.1.4').
+version('0.1.5').
 author('Chris Mungall','cmungall@gmail.com').
 packager('Chris Mungall','cmungall@gmail.com').
 home('https://github.com/cmungall/index_util').
