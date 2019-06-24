@@ -21,6 +21,9 @@
 :- use_module(library(semweb/rdf11)).
 :- use_module(library(semweb/rdfs)).
 
+:- rdf_register_prefix(rdfmatch_user, 'http://example.org/rdfmatch_user/').
+
+
 % note: when we switc to swipl 7.8 consider using new stack options
 %:- set_prolog_flag(stack_limit,'0G').
 %:- set_prolog_stack(global, limit(1)).
@@ -51,9 +54,14 @@ wmain(Argv) :-
           help('Output format: csv')
          ],
          [opt(input), type(atom),
-          longflags(['input']),
+          longflags([input]),
           shortflags([i]),
           help('Input RDF file (use in combo with -x)')
+         ],
+         [opt(termfile), type(atom),
+          longflags([terms]),
+          shortflags([t]),
+          help('Input list of terms, newline delimited')
          ],
          [opt(indexdir), type(atom),
           longflags(['indexdir']),
@@ -251,6 +259,10 @@ run([trial|_Args], Opts) :-
         G = new_unique_match_triad(X,_,_),
         write_all_results(X,G,Opts).
 
+run([unmatched,Pfx,XPfx|_Args], Opts) :-
+        G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
+        forall((G,obj_label(X,XN)),
+               write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
 run([unmatched,Pfx|_Args], Opts) :-
         G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
         forall((G,obj_label(X,XN)),
@@ -329,6 +341,19 @@ wrule(R) :-
         numbervars(R2,0,_,[]),
         format('~q.~n',[R2]).
 
+load_terms_from_file(File) :-
+        csv_read_file(File,Rows,[]),
+        forall(member(Row,Rows),
+               assert_class_from_row(Row)).
+
+assert_class_from_row(Row) :-
+        Row =.. [_Pred,Term|_],
+        rdf_global_id(rdfmatch_user:Term,URI),
+        rdf_assert(URI,rdfs:label,Term@en),
+        rdf_assert(URI,rdf:type,owl:'Class').
+
+        
+                
 
 handle_opts(Opts) :-
         opt_if_call(verbose,debug(rdf_matcher),Opts),
@@ -342,6 +367,7 @@ handle_opts(Opts) :-
         opt_forall(ontology(Prefix),set_ontology(Prefix),Opts),
         opt_forall(consult(X),consult(X),Opts),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
+        opt_forall(termfile(X),load_terms_from_file(X),Opts),
         opt_forall(goal(X),X,Opts).
 
 

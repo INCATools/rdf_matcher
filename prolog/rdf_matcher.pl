@@ -124,6 +124,7 @@ match_is_inexact(info(_,_,stem)) :- !.
 
 nonmut(xref).
 nonmut(id).
+nonmut(uri).
 
 
 literal_string(S^^_,S).
@@ -202,11 +203,17 @@ token_index(Tok,Ix) :-
             atom_number(IxAtom,Ix),
             assert(token_index_stored(Tok,Ix))).
 
+
+%! obj_token(?Obj,?Tok) is det
+%
+%   maps between an OWL object IRI and a token obtained from tokenizing a label or synonym
+%
 obj_token(Obj,Tok) :-
         obj_token(Obj,Tok,_,_).
 obj_token(Obj,Tok,P,V) :-
         rdf(Obj,rdf:type,_),
         tr_annot(Obj,P,V,_,_,_),
+        \+ nonmut(P),
         every_n(objtoken,10000,debug(index,'OT: ~w ~w ~w',[Obj,P,V])),
         concat_atom(Toks,' ',V),
         member(Tok,Toks),
@@ -214,7 +221,7 @@ obj_token(Obj,Tok,P,V) :-
         % TODO: make this less arbitrary
         % designed to filter out things that are not truly word tokens,
         % or hard to tokenize chemical names. http://purl.obolibrary.org/obo/CHEBI_36054
-        TokLen < 50.
+        TokLen < 25.
 
 every_n(Name,Num,Goal) :-
         (   nb_current(Name,X)
@@ -225,17 +232,17 @@ every_n(Name,Num,Goal) :-
         (   Mod=0
         ->  debug(counter,'~w Iteration ~w',[Name,X2]),
             Goal
-        ;   true).
-
-        
+        ;   true),
+        !.
 
         
 
 :- dynamic position_ic/2.
 create_bitmap_index :-
         %assert(token_index_stored('',0)),
-        debug(index,'Getting all obj-token pairs',[]),
+        debug(index,'Getting all obj-token pairs ot/4',[]),
         materialize_index(obj_token(+,+,+,+)),
+        debug(index,'Getting all obj-token pairs ot/2',[]),
         materialize_index(obj_token(+,+)),
         debug(index,'getting distinct tokens...',[]),
         setof(Token, Obj^obj_token(Obj,Token),Tokens),
@@ -527,12 +534,18 @@ new_ambiguous_pair_cmatch(C1,C2,AltC1,AltC2,V,Info) :-
         new_ambiguous_pair_match(C1x,C2x,AltC1,AltC2,V,Info).
 
 
-exact_inter_pair_match(C,X,V,Info) :-
-        inter_pair_match(C,X,V,Info),
-        \+ match_is_inexact(Info).
         
-exact_inter_pair_match(C,X,CParents,XParents,Conf,V,Info,AltCs,AltXs,IgnoredCs,IgnoredXs) :-
+exact_inter_pair_match(C,X,CParents,XParents,Conf,Vs,Info,AltCs,AltXs,IgnoredCs,IgnoredXs) :-
+        setof(V-Info,
+              exact_inter_pair_match1(C,X,CParents,XParents,Conf,V,Info,AltCs,AltXs,IgnoredCs,IgnoredXs),
+              Ms),
+        setof(V,Info^member(V-Info,Ms),Vs),
+        setof(Info,V^member(V-Info,Ms),Infos),
+        sformat(Info,'~w',[Infos]).
+
+exact_inter_pair_match1(C,X,CParents,XParents,Conf,V,info(Pred1,Pred2,Func),AltCs,AltXs,IgnoredCs,IgnoredXs) :-
         exact_inter_pair_match(C,X,V,Info),
+        Info=info(Pred1-Pred2,_,Func),
         findall(X2,alt_exact_inter_pair_match(C,X,X2),AltXs),
         findall(C2,alt_exact_inter_pair_match(X,C,C2),AltCs),
         findall(X2,alt_inexact_inter_pair_match(C,X,X2),IgnoredXs),
@@ -546,6 +559,10 @@ exact_inter_pair_match(C,X,CParents,XParents,Conf,V,Info,AltCs,AltXs,IgnoredCs,I
         ;   Conf=low),
         findall(Parent,entity_parent(C,Parent),CParents),
         findall(Parent,entity_parent(X,Parent),XParents).
+
+exact_inter_pair_match(C,X,V,Info) :-
+        inter_pair_match(C,X,V,Info),
+        \+ match_is_inexact(Info).
 
 entity_parent(X,Parent) :-
         rdf(X,rdfs:subClassOf,Parent),
@@ -763,6 +780,27 @@ remove_inexact_synonyms :-
         forall(member(rdf(S,P,O),Ts),
                (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
                    rdf_retractall(S,P,O))).
+
+% e.g. disodium 7-hydroxy-8-[(e)-phenyldiazenyl]naphthalene-1,3-disulfonate
+remove_chemical_synonyms :-
+        T=rdf(_,P,Lit),
+        findall(T,
+                (   pmap(_,P),
+                    T,
+                    literal_atom(Lit,A),
+                    is_chemical(A)),
+                Ts),
+        forall(member(rdf(S,P,O),Ts),
+               (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
+                   rdf_retractall(S,P,O))).
+
+is_chemical(A) :-   sub_atom(A,_,_,_,'{').
+is_chemical(A) :-   sub_atom(A,_,_,_,'[').
+is_chemical(A) :-   sub_atom(A,_,_,_,'<->').
+is_chemical(A) :-   sub_atom(A,_,_,_,'-(').
+is_chemical(A) :-   sub_atom(A,_,_,_,')-').
+
+
 
 
 parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
