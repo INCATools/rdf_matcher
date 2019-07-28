@@ -22,6 +22,7 @@
 :- use_module(library(semweb/rdfs)).
 
 :- rdf_register_prefix(rdfmatch_user, 'http://example.org/rdfmatch_user/').
+:- rdf_register_prefix(inca, 'https://w3id.org/inca/').
 
 
 % note: when we switc to swipl 7.8 consider using new stack options
@@ -72,6 +73,22 @@ wmain(Argv) :-
           longflags(['prefix']),
           shortflags([p]),
           help('Prefix to perform matching against')
+         ],
+         [opt(prefix_mapping), type(atom),
+          longflags(['prefix_mapping']),
+          shortflags([m]),
+          help('Declare a prefix mapping. The value should be of the form "PREFIX=URIBase"')
+         ],
+         [opt(rdf_graph), type(atom),
+          longflags(['graph']),
+          shortflags(['G']),
+          help('path to save rdf graph of generated triples')
+         ],
+         [opt(match_predicate),
+          type(term),
+          longflags(['predicate']),
+          default(owl:equivalentClass),
+          help('rdf predicate for asserting triples')
          ],
          [opt(ontology), type(atom),
           longflags(['ontology']),
@@ -127,6 +144,13 @@ wmain(Argv) :-
           shortflags([l]),
           help('Inject query for rdfs labels into query')
          ],
+         [opt(label_predicate),
+          type(term),
+          default(rdfpred(rdfs:label)),
+          longflags([label_predicate]),
+          shortflags(['L']),
+          help('predicate to use when looking up labels')
+         ],
          [opt(obsoletes),
           type(boolean),
           default(false),
@@ -153,13 +177,6 @@ wmain(Argv) :-
           longflags([interactive]),
           shortflags(['I']),
           help('Interactive prolog')
-         ],
-         [opt(compile),
-          type(boolean),
-          default(false),
-          longflags([compile]),
-          shortflags(['C']),
-          help('Compile Prolog to SPARQL (no execution)')
          ],
          [opt(verbose),
           type(boolean),
@@ -218,6 +235,10 @@ run([match|_Args], Opts) :-
         G = inter_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).
 
+run([intra_match|_Args], Opts) :-
+        G = intra_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).
+
 run([exact|_Args], Opts) :-
         write_result_wrap(m(c1,c2,c1parents,c2parents,conf,match,info,alt_c1,alt_c2,ignored_c1,ignored_c2),Opts),
         G = exact_inter_pair_match(X,_,_,_,_,_,_,_,_,_,_),
@@ -268,6 +289,44 @@ run([unmatched,Pfx|_Args], Opts) :-
         forall((G,obj_label(X,XN)),
                write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
 
+
+
+add_to_graph(G,Graph,Opts) :-
+        G =.. [_,Sub,Obj|Args],
+        option(match_predicate(Pred),Opts,owl:equivalentClass),
+        (   Pred=owl:equivalentClass,
+            rdf(Sub,rdf:type,Type),
+            rdf(Obj,rdf:type,Type),
+            fix_equiv_pred(Type,Pred1)
+        ->  true
+        ;   Pred1=Pred),
+        rdf_global_id(Pred1,Pred2),
+        rdf_assert(Sub,Pred2,Obj,Graph),
+        assert_label(Sub,Pred2,Obj,Graph,inca:sourceLabel,Sub),
+        assert_label(Sub,Pred2,Obj,Graph,inca:targetLabel,Obj),
+        sformat(Info,'Info: ~w',[Args]),
+        rdf_canonical_literal(Info,InfoLit),
+        rdf_assert_annotated(Sub,Pred2,Obj,Graph,rdfs:comment,InfoLit).
+
+assert_label(Sub,Pred,Obj,Graph,AP,X) :-
+        rdf(X,rdfs:label,Label),
+        !,
+        rdf_assert(AP,rdfs:type,owl:'AnnotationProperty',Graph),
+        rdf_assert_annotated(Sub,Pred,Obj,Graph,AP,Label).
+assert_label(_,_,_,_,_,_).
+
+rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
+        rdf_create_bnode(Axiom),
+        rdf_assert(Axiom,rdf:type,owl:'Axiom',Graph),
+        rdf_assert(Axiom,owl:annotatedSource,Sub,Graph),
+        rdf_assert(Axiom,owl:annotatedTarget,Obj,Graph),
+        rdf_assert(Axiom,owl:annotatedProperty,Pred,Graph),
+        rdf_assert(Axiom,P,V,Graph).
+
+
+
+fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty',P).
+
 %! write_all_results(?X, +Goal, +Opts:list) is det.
 %
 % writes value of X for every Goal
@@ -278,8 +337,16 @@ write_all_results(X,G,Opts) :-
         opt_query_constraint_pre(X,PreG,Opts),
         opt_query_constraint_post(X,G,PostG,Opts),
         forall((PreG,G,PostG),
-               write_result_wrap(G,Opts)).
+               write_result_wrap(G,Opts)),
+        (   option(rdf_graph(RdfFile),Opts)
+        ->  rdf_save(RdfFile,[graph(match_graph)])
+        ;   true).
 
+write_result_wrap(G,Opts) :-
+        select(rdf_graph(_),Opts,Opts2),
+        !,
+        write_result_wrap(G,Opts2),
+        add_to_graph(G,match_graph,Opts2).
 write_result_wrap(G,Opts) :-
         select(inject_labels(Inject),Opts,Opts2),
         nonvar(Inject),
@@ -352,8 +419,10 @@ assert_class_from_row(Row) :-
         rdf_assert(URI,rdfs:label,Term@en),
         rdf_assert(URI,rdf:type,owl:'Class').
 
-        
-                
+add_prefix(X) :-
+        concat_atom([Pre,Base],'=',X),
+        debug(rdf_matcher,'Registering: ~w = ~w',[Pre,Base]),
+        rdf_register_prefix(Pre,Base).
 
 handle_opts(Opts) :-
         opt_if_call(verbose,debug(rdf_matcher),Opts),
@@ -368,6 +437,7 @@ handle_opts(Opts) :-
         opt_forall(consult(X),consult(X),Opts),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
         opt_forall(termfile(X),load_terms_from_file(X),Opts),
+        opt_forall(prefix_mapping(X),add_prefix(X),Opts),
         opt_forall(goal(X),X,Opts).
 
 
