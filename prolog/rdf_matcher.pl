@@ -28,6 +28,7 @@
            
            pair_match/4,
            pair_cmatch/4,
+           intra_pair_match/4,
            inter_pair_match/4,
            inter_pair_cmatch/4,
            exact_inter_pair_match/11,
@@ -101,6 +102,7 @@ index_pairs(Path) :-
 :- rdf_meta pmap(-,r).
 
 pmap(label, rdfs:label).
+pmap(label, skos:prefLabel).
 pmap(related, oio:hasRelatedSynonym).
 pmap(exact, oio:hasExactSynonym).
 pmap(broad, oio:hasBroadSynonym).
@@ -236,6 +238,12 @@ every_n(Name,Num,Goal) :-
         !.
 
         
+:- multifile index_util:fast_index/1.
+
+index_util:fast_index(obj_token/4).
+index_util:fast_index(obj_token/2).
+index_util:fast_index(token_index/2).
+index_util:fast_index(position_ic/2).
 
 :- dynamic position_ic/2.
 create_bitmap_index :-
@@ -245,7 +253,11 @@ create_bitmap_index :-
         debug(index,'Getting all obj-token pairs ot/2',[]),
         materialize_index(obj_token(+,+)),
         debug(index,'getting distinct tokens...',[]),
-        setof(Token, Obj^obj_token(Obj,Token),Tokens),
+        %setof(Token, Obj^obj_token(Obj,Token),Tokens),
+        findall(Token, obj_token(Obj,Token),TokensNU),
+        length(TokensNU,NumUsages),
+        debug(index,'uniquifying... Usages: ~w',[NumUsages]),
+        sort(TokensNU,Tokens),
         debug(index,'aggregating...',[]),
         maplist([Token,Count-Token] >> aggregate(count,Obj,obj_token(Obj,Token),Count), Tokens, CTPairs1),
         debug(index,'sorting...',[]),
@@ -439,6 +451,14 @@ pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C1,C1x),
         rdf_global_id(C2,C2x),
         pair_match(C1x,C2x,V,Info).
+
+:- rdf_meta intra_pair_match(r,r,-,-).
+intra_pair_match(C1,C2,V,Info) :-
+        pair_match(C1,C2,V,Info),
+        C1\=C2.
+%has_prefix(C1,Pfx),
+%has_prefix(C2,Pfx).
+intra_pair_match(null,null,null,null).
 
 
 :- rdf_meta inter_pair_match(r,r,-,-).
@@ -780,25 +800,6 @@ remove_inexact_synonyms :-
         forall(member(rdf(S,P,O),Ts),
                (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
                    rdf_retractall(S,P,O))).
-
-% e.g. disodium 7-hydroxy-8-[(e)-phenyldiazenyl]naphthalene-1,3-disulfonate
-remove_chemical_synonyms :-
-        T=rdf(_,P,Lit),
-        findall(T,
-                (   pmap(_,P),
-                    T,
-                    literal_atom(Lit,A),
-                    is_chemical(A)),
-                Ts),
-        forall(member(rdf(S,P,O),Ts),
-               (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
-                   rdf_retractall(S,P,O))).
-
-is_chemical(A) :-   sub_atom(A,_,_,_,'{').
-is_chemical(A) :-   sub_atom(A,_,_,_,'[').
-is_chemical(A) :-   sub_atom(A,_,_,_,'<->').
-is_chemical(A) :-   sub_atom(A,_,_,_,'-(').
-is_chemical(A) :-   sub_atom(A,_,_,_,')-').
 
 
 
