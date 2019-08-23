@@ -1,4 +1,4 @@
-#!/usr/bin/env swipl -G12g
+#!/usr/bin/env swipl
 
 :- initialization main.
 
@@ -290,7 +290,7 @@ run([unmatched,Pfx|_Args], Opts) :-
                write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
 
 
-
+% for a given successful Goal, serialize to results rdf graph
 add_to_graph(G,Graph,Opts) :-
         G =.. [_,Sub,Obj|Args],
         option(match_predicate(Pred),Opts,owl:equivalentClass),
@@ -339,7 +339,7 @@ write_all_results(X,G,Opts) :-
         forall((PreG,G,PostG),
                write_result_wrap(G,Opts)),
         (   option(rdf_graph(RdfFile),Opts)
-        ->  rdf_save(RdfFile,[graph(match_graph)])
+        ->  rdf_save_turtle(RdfFile,[graph(match_graph)])
         ;   true).
 
 write_result_wrap(G,Opts) :-

@@ -1,4 +1,4 @@
-FROM swipl:7.5.12
+FROM swipl:8.0.3
 MAINTAINER Chris Mungall <cjmungall@lbl.gov>
 
 RUN apt-get update && apt-get install make

@@ -62,7 +62,7 @@
 
 :- use_module(library(porter_stem)).
 :- use_module(library(index_util)).
-:- use_module(library(tabling)).
+%:- use_module(library(tabling)).
 :- use_module(library(semweb/rdf11)).
 :- use_module(library(sparqlprog/owl_util)).
 
@@ -186,10 +186,19 @@ mutate(downcase,_,V,V2) :-
 custom_porter_stem(T,S) :-
         atom_concat(Obj,eous,T),
         atom_concat(Obj,eus,T2),
+        is_ascii(T),
         !,
         porter_stem(T2,S).
 custom_porter_stem(T,S) :-
+        is_ascii(T),
         porter_stem(T,S).
+
+% porter_stem only accepts ISO-Latin 1. To avoid conversion
+% (not sure how) we simply do not attempt to stem anything that isn't on
+% the ascii subset
+is_ascii(T) :-
+        atom_codes(T,Codes),
+        \+ ((member(C,Codes), C > 255)).
 
 excluded(C1,_) :-
         setting(ontology,P),
@@ -589,10 +598,12 @@ entity_parent(X,Parent) :-
         rdf_is_iri(Parent).
 entity_parent(X,Parent) :-
         subclass_of_some(X,R,Parent),
-        parent_relation(R).
+        parent_relation(R),
+        rdf_is_iri(Parent).
 entity_parent(X,Parent) :-
         rdf(X,R,Parent),
-        parent_relation(R).
+        parent_relation(R),
+        rdf_is_iri(Parent).
 entity_parent(X,Parent) :-
         rdf(X,rdf:type,Parent),
         \+ rdf_global_id(rdf:_,Parent),
@@ -803,7 +814,7 @@ remove_inexact_synonyms :-
 
 
 
-
+% TODO: make configurable
 parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
-parent_relation('http://purl.obolibrary.org/obo/RO:0001025').
+parent_relation('http://purl.obolibrary.org/obo/RO_0001025').
 parent_relation('http://purl.obolibrary.org/obo/BFO_0000050').
