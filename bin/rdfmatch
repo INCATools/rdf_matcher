@@ -20,6 +20,7 @@
 :- use_module(library(semweb/rdf_zlib_plugin)).
 :- use_module(library(semweb/rdf11)).
 :- use_module(library(semweb/rdfs)).
+:- use_module(library(semweb/turtle)).
 
 :- rdf_register_prefix(rdfmatch_user, 'http://example.org/rdfmatch_user/').
 :- rdf_register_prefix(inca, 'https://w3id.org/inca/').
@@ -62,7 +63,11 @@ wmain(Argv) :-
          [opt(termfile), type(atom),
           longflags([terms]),
           shortflags([t]),
-          help('Input list of terms, newline delimited')
+          help('File with list of terms, newline delimited')
+         ],
+         [opt(termlist), type(atom),
+          longflags([termlist]),
+          help('list of terms, pipe delimited')
          ],
          [opt(indexdir), type(atom),
           longflags(['indexdir']),
@@ -289,40 +294,28 @@ run([unmatched,Pfx|_Args], Opts) :-
         forall((G,obj_label(X,XN)),
                write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
 
+% rdfmatch -p x -i /tmp/eq.ttl -X /tmp/ --termlist 'bone' -d index -d rdf_matcher -i tests/data/basic.ttl merge 
+run([merge|_], Opts) :-
+        G=new,
+        forall(obj_has_prefix(C,rdfmatch_user),
+               merge_into(C,G, [match(true)|Opts])),
+        show_turtle(G).
+run([synthesize,Label|_], Opts) :-
+        G=new,
+        synthesize_class(Label,rdfmatch_user,_C,G, [match(true)|Opts]),
+        show_turtle(G).
 
-% for a given successful Goal, serialize to results rdf graph
-add_to_graph(G,Graph,Opts) :-
-        G =.. [_,Sub,Obj|Args],
-        option(match_predicate(Pred),Opts,owl:equivalentClass),
-        (   Pred=owl:equivalentClass,
-            rdf(Sub,rdf:type,Type),
-            rdf(Obj,rdf:type,Type),
-            fix_equiv_pred(Type,Pred1)
-        ->  true
-        ;   Pred1=Pred),
-        rdf_global_id(Pred1,Pred2),
-        rdf_assert(Sub,Pred2,Obj,Graph),
-        assert_label(Sub,Pred2,Obj,Graph,inca:sourceLabel,Sub),
-        assert_label(Sub,Pred2,Obj,Graph,inca:targetLabel,Obj),
-        sformat(Info,'Info: ~w',[Args]),
-        rdf_canonical_literal(Info,InfoLit),
-        rdf_assert_annotated(Sub,Pred2,Obj,Graph,rdfs:comment,InfoLit).
+% always use with -X no_index  TODO NO
+run([xxxsynthesize, Label|_], Opts) :-
+        G=new,
+        synthesize_class(Label,_Prefix,_C,G, [match(true)|Opts]),
+        show_turtle(G).
 
-assert_label(Sub,Pred,Obj,Graph,AP,X) :-
-        rdf(X,rdfs:label,Label),
-        !,
-        rdf_assert(AP,rdfs:type,owl:'AnnotationProperty',Graph),
-        rdf_assert_annotated(Sub,Pred,Obj,Graph,AP,Label).
-assert_label(_,_,_,_,_,_).
-
-rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
-        rdf_create_bnode(Axiom),
-        rdf_assert(Axiom,rdf:type,owl:'Axiom',Graph),
-        rdf_assert(Axiom,owl:annotatedSource,Sub,Graph),
-        rdf_assert(Axiom,owl:annotatedTarget,Obj,Graph),
-        rdf_assert(Axiom,owl:annotatedProperty,Pred,Graph),
-        rdf_assert(Axiom,P,V,Graph).
-
+show_turtle(G) :-
+        tmp_file(new_classes,File),
+        rdf_save_turtle(File,[graph(G)]),
+        read_file_to_codes(File, Codes,[]),
+        format(Codes).
 
 
 fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty',P).
@@ -346,7 +339,7 @@ write_result_wrap(G,Opts) :-
         select(rdf_graph(_),Opts,Opts2),
         !,
         write_result_wrap(G,Opts2),
-        add_to_graph(G,match_graph,Opts2).
+        add_match_to_graph(G,match_graph,Opts2).
 write_result_wrap(G,Opts) :-
         select(inject_labels(Inject),Opts,Opts2),
         nonvar(Inject),
@@ -413,6 +406,11 @@ load_terms_from_file(File) :-
         forall(member(Row,Rows),
                assert_class_from_row(Row)).
 
+make_terms_from_list(AList) :-
+        concat_atom(Terms,'|',AList),
+        forall(member(T,Terms),
+               assert_class_from_row(t(T))).
+
 assert_class_from_row(Row) :-
         Row =.. [_Pred,Term|_],
         rdf_global_id(rdfmatch_user:Term,URI),
@@ -437,6 +435,7 @@ handle_opts(Opts) :-
         opt_forall(consult(X),consult(X),Opts),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
         opt_forall(termfile(X),load_terms_from_file(X),Opts),
+        opt_forall(termlist(X),make_terms_from_list(X),Opts),
         opt_forall(prefix_mapping(X),add_prefix(X),Opts),
         opt_forall(goal(X),X,Opts).
 

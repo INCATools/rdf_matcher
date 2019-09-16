@@ -57,7 +57,11 @@
            unmatched/1,
            unmatched_in/2,
 
-           remove_inexact_synonyms/0
+           remove_inexact_synonyms/0,
+
+           synthesize_class/5,
+           merge_into/3,
+           add_match_to_graph/3
            ]).
 
 :- use_module(library(porter_stem)).
@@ -65,6 +69,7 @@
 %:- use_module(library(tabling)).
 :- use_module(library(semweb/rdf11)).
 :- use_module(library(sparqlprog/owl_util)).
+:- use_module(library(sparqlprog/search_util)).
 
 :- use_module(library(settings)).
 :- setting(ontology, atom,'','').
@@ -82,6 +87,7 @@ set_ontology(Ont) :-
 %:- module_transparent index_pairs/0, index_pairs/1.
 index_pairs :-
         index_pairs(none).
+index_pairs(no_index) :- !.
 index_pairs(Path) :-
         materialize_index(obj(+)),
         Goals=[
@@ -812,9 +818,142 @@ remove_inexact_synonyms :-
                (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
                    rdf_retractall(S,P,O))).
 
+mpred(skos:exactMatch).
+mpred(skos:closeMatch).
+mpred(owl:equivalentClass).
+mpred(owl:equivalentProperty).
+asserted_match(X,Y) :- mpred(P),rdf(X,P,Y).
+asserted_match(X,Y) :- mpred(P),rdf(Y,P,X).
+
+synthesize_class(Label,Prefix,C,TargetGraph,Opts) :-
+        rdf_assert(TargetGraph,rdf:type,owl:'Ontology',TargetGraph),
+        rdf_assert(oio:source,rdf:type,owl:'AnnotationProperty',TargetGraph),
+        rdf_global_id(Prefix:Label,C),
+        rdf_assert(C,rdf:type,owl:'Class'),
+        rdf_assert(C,rdfs:label,Label@en),
+        setof(X,lsearch(Label,X),Sources),
+        merge_into(C, Sources, TargetGraph, Opts).
+        
+
+%! merge_all_equivalents(+TargetPrefix, +TargetGraph, ?Opts) is det.
+merge_all_equivalents(TargetPrefix, TargetGraph, Opts) :-
+        setof(Tgt,obj_has_prefix(Tgt,TargetPrefix),Tgts),
+        forall(member(Tgt,Tgts),
+               merge_into(Tgt, TargetGraph, Opts)).
+        
+%! merge_into(+Target:iri, +TargetGraph:iri, +Opts:list) is det.
+%! merge_into(+Target:iri, +Sources:list, +TargetGraph:iri, +Opts:list) is det.
+merge_into(Target, TargetGraph, Opts) :-
+        (   member(match(true),Opts)
+        ->  find_and_store_matches(Target,0,matches,Opts)
+        ;   true),
+        findall(X,asserted_match(Target,X),Sources),
+        merge_into(Target, Sources, TargetGraph, Opts).
+merge_into(Target, Sources, TargetGraph, Opts) :-
+        % bring over axioms from Source, rewiring if necessary
+        forall(member(S,Sources),
+               forall(rdf(S,P,O),
+                      rdf_assert_mapped(Target, P, O, TargetGraph, S, Opts))),
+        % bring over axioms about target, unaltered
+        forall(rdf(Target,P,O),
+               rdf_assert(Target, P, O, TargetGraph)),
+        % inject skos exact matches
+        forall(member(S,Sources),
+               rdf_assert(Target,skos:exactMatch,S, TargetGraph)).
+
+rdf_assert_mapped(S, P, O, TG, SourceEntity, Opts) :-
+        map_predicate(P, Px, Opts),
+        map_iri(O, Ox, P, Opts),
+        (   S=Ox
+        ->  true
+        ;   rdf_assert_annotated(S, Px, Ox, TG, oio:source, SourceEntity)).
+
+:- rdf_meta map_predicate(r,r,o).
+
+map_predicate(rdfs:label,oio:hasExactSynonym,_) :- !.  % preserve cardinality
+map_predicate(P,Px,Opts) :-
+        owl_equivalent_property_asserted_symm(P,Px),
+        has_prefix(Px,Prefix),
+        member(prefix(Prefix),Opts),
+        !.
+map_predicate(P,P,_).
+
+map_iri(A,A,P,_) :- mpred(Px),rdf_global_id(Px,P),!.  % do not map if object of a mapping
+map_iri(A,A,_,_) :- \+ rdf_is_iri(A).
+map_iri(A,Ax,_,Opts) :-
+        owl_equivalent_class_asserted_symm(A,Ax),
+        has_prefix(Ax,Prefix),
+        debug(rdf_matcher,'Eq: ~w == ~w ;; checking prefix ~w',[A,Ax,Prefix]),
+        member(prefix(Prefix),Opts),
+        debug(rdf_matcher,'Mapped ~w -> ~w',[A,Ax]),
+        !.
+map_iri(A,A,_,_).
 
 
+% det
+find_and_store_matches(X,Dist,Graph,Opts) :-
+        option(search_distance(MaxDist),Opts,1),
+        Dist < MaxDist,
+        match_goal_template(X,Y,G,Opts),
+        Dist1 is Dist+1,
+        forall(G,(add_match_to_graph(G,Graph,[match_predicate(skos:exactMatch)|Opts]),
+                  find_and_store_matches(Y,Dist1,Graph,Opts))).
+find_and_store_matches(_,_,_,_).
+
+
+match_goal_template(X,Y,G,Opts) :-
+        member(quickmatch(true),Opts),
+        !,
+        G=quick_match(X,Y,_).
+match_goal_template(X,Y,G,_Opts) :- G = pair_match(X,Y,_,_).
+
+quick_match(X,Y,Info) :-
+        rdf(X,XP,XV),
+        pmap(XPN,XP),
+        literal_atom(XV,XVA),
+        {icase(YV,XVA)},
+        rdf(Y,YP,YV),
+        pmap(YPN,YP),
+        Info=m(XPN,YPN).
+
+% for a given successful Goal, serialize to results rdf graph
+add_match_to_graph(G,Graph,Opts) :-
+        debug(rdf_matcher,'Adding match: ~q to ~q',[G,Graph]),
+        G =.. [_,Sub,Obj|Args],
+        option(match_predicate(Pred),Opts,owl:equivalentClass),
+        (   Pred=owl:equivalentClass,
+            rdf(Sub,rdf:type,Type),
+            rdf(Obj,rdf:type,Type),
+            fix_equiv_pred(Type,Pred1)
+        ->  true
+        ;   Pred1=Pred),
+        rdf_global_id(Pred1,Pred2),
+        rdf_assert(Sub,Pred2,Obj,Graph),
+        assert_label(Sub,Pred2,Obj,Graph,inca:sourceLabel,Sub),
+        assert_label(Sub,Pred2,Obj,Graph,inca:targetLabel,Obj),
+        sformat(Info,'Info: ~w',[Args]),
+        rdf_canonical_literal(Info,InfoLit),
+        rdf_assert_annotated(Sub,Pred2,Obj,Graph,rdfs:comment,InfoLit).
+
+assert_label(Sub,Pred,Obj,Graph,AP,X) :-
+        rdf(X,rdfs:label,Label),
+        !,
+        rdf_assert(AP,rdfs:type,owl:'AnnotationProperty',Graph),
+        rdf_assert_annotated(Sub,Pred,Obj,Graph,AP,Label).
+assert_label(_,_,_,_,_,_).
+
+rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
+        rdf_create_bnode(Axiom),
+        rdf_assert(Axiom,rdf:type,owl:'Axiom',Graph),
+        rdf_assert(Axiom,owl:annotatedSource,Sub,Graph),
+        rdf_assert(Axiom,owl:annotatedTarget,Obj,Graph),
+        rdf_assert(Axiom,owl:annotatedProperty,Pred,Graph),
+        rdf_assert(Axiom,P,V,Graph),
+        rdf_assert(Sub,Pred,Obj,Graph).
+
+              
 % TODO: make configurable
 parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
 parent_relation('http://purl.obolibrary.org/obo/RO_0001025').
 parent_relation('http://purl.obolibrary.org/obo/BFO_0000050').
+

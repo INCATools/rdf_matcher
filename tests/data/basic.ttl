@@ -11,9 +11,17 @@
 @prefix xref: <http://www.geneontology.org/formats/oboInOwl#hasDbXref> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix UBERON: <http://purl.obolibrary.org/obo/UBERON_> .
+@prefix sh:	<http://www.w3.org/ns/shacl#> .
 @base <http://example.org> .
 
 :test.owl rdf:type owl:Ontology .
+
+[ sh:declare
+    [ sh:prefix "x" ; sh:namespace "http://example.org/x/"],
+    [ sh:prefix "y" ; sh:namespace "http://example.org/y/"],
+    [ sh:prefix "z" ; sh:namespace "http://example.org/z/"]
+    ] .
+    
 
 ## X ontology (base)
 
