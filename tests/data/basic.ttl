@@ -21,6 +21,8 @@
     [ sh:prefix "y" ; sh:namespace "http://example.org/y/"],
     [ sh:prefix "z" ; sh:namespace "http://example.org/z/"]
     ] .
+
+    rdfs:label a owl:AnnotationProperty .
     
 
 ## X ontology (base)
