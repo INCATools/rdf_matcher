@@ -72,6 +72,7 @@ wmain(Argv) :-
          [opt(indexdir), type(atom),
           longflags(['indexdir']),
           shortflags(['X']),
+          default(none),
           help('path to directory to be used for materializing index')
          ],
          [opt(prefix), type(atom),
