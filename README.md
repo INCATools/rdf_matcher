@@ -45,6 +45,11 @@ Once you you created the probabilistic rules, these can be applied:
 
 `rdfmatch -f tsv -i tests/data/basic.ttl classify probrules.pro`
 
+Generate mappings in SSSOM format:
+
+`rdfmatch  -w prolog/rdf_matcher/obo_weights.pl -T -i tests/data/basic.ttl match`
+
+
 
 
 ## Cacheing

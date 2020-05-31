@@ -79,6 +79,7 @@
 
 :- rdf_register_prefix(skos, 'http://www.w3.org/2004/02/skos/core#').
 :- rdf_register_prefix(inca, 'https://w3id.org/inca/').
+:- rdf_register_prefix(schema, 'http://schema.org/').
 
 :- multifile user:weight/2.
 :- dynamic user:weight/2.
@@ -100,9 +101,9 @@ index_pairs(Path) :-
         Goals=[
                %equivalent(+,+),
                basic_annot(+,+,-,-),
-               tr_annot(+,+,+,-,-,-),
-               pair_match(+,+,-,-),
-               inter_pair_match(+,+,-,-)
+               tr_annot(+,+,+,-,-,-)
+               %pair_match(+,+,-,-),
+               %inter_pair_match(+,+,-,-)
               ],
         (   Path=none
         ->  maplist(materialize_index,Goals)
@@ -128,7 +129,7 @@ pmap(narrow, skos:narrowMatch).
 
 pmap(xref, oio:hasDbXref).
 
-objpmap(exact, skos:exactMatch).
+%objpmap(exact, skos:exactMatch).
 
 inexact(broad).
 inexact(narrow).
@@ -142,6 +143,11 @@ match_is_inexact(info(_,_,stem)) :- !.
 nonmut(xref).
 nonmut(id).
 nonmut(uri).
+
+
+rdf_object_as_atom(X,X) :- rdf_is_iri(X),!.
+rdf_object_as_atom(X,A) :- literal_atom(X,A),!.
+
 
 
 literal_string(S^^_,S).
@@ -171,12 +177,12 @@ basic_annot(Obj,P,V,T) :-
         obj(Obj),
         T=rdf(Obj,P1,Val),
         T,
-        literal_atom(Val,V).
-basic_annot(Obj,id,V,id(V)) :-
+        rdf_object_as_atom(Val,V).
+basic_annot(Obj,id,V,rdf(Obj,dc:identifier,V)) :-
         obj(Obj),
         rdf_global_id(Pre:Post,Obj),
         concat_atom([Pre,Post],:,V).
-basic_annot(Obj,uri,Obj,uri(Obj)) :-
+basic_annot(Obj,uri,Obj,rdf(Obj,schema:url,Obj)) :-
         obj(Obj).
 %basic_annot(Obj,P,Val,uri(Val)) :-
 %        objpmap(P,P1),
@@ -463,6 +469,11 @@ bm_positions_lo(AV,AL,Pos) :-
         !,
         bm_positions_lo(AVShift,AL2,NextPos).
 
+combine_mutfunc(X,X,X) :- !.
+combine_mutfunc(null,downcase,null) :- !.
+combine_mutfunc(downcase,null,null) :- !.
+
+
 %% pair_match(?Class1, ?Class2, ?SharedVal, Info) is nondet
 %
 % Info = ?AP1, ?AP2, ?Triple1, ?Triple2, ?MutFunc
@@ -470,8 +481,9 @@ bm_positions_lo(AV,AL,Pos) :-
 :- rdf_meta pair_match(r,r).
 pair_match(C1,C2,V,Info) :-
         Info=info(P1-P2,T1-T2,MutFunc),
-        tr_annot(C1,P1,V,T1,MutFunc,_),
-        tr_annot(C2,P2,V,T2,MutFunc,_),
+        tr_annot(C1,P1,V,T1,MutFunc1,_),
+        tr_annot(C2,P2,V,T2,MutFunc2,_),
+        combine_mutfunc(MutFunc1,MutFunc2,MutFunc),
         \+ excluded(C1,C2),
         C1\=C2.
 pair_match(C1,C2) :- pair_match(C1,C2,_,_).

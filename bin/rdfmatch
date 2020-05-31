@@ -113,6 +113,11 @@ wmain(Argv) :-
           shortflags([g]),
           help('Prolog goal to call')
          ],
+         [opt(metadata), type(term),
+          longflags([metadata]),
+          shortflags(['M']),
+          help('metadata')
+         ],
          [opt(consult), type(atom),
           longflags([consult]),
           shortflags([c]),
@@ -224,8 +229,36 @@ wmain(Argv) :-
         index_pairs(IndexDir),
         opt_if_call(interactive,sparqlprog_shell(Opts),Opts),
         opt_if_call(prolog,prolog_shell(Opts),Opts),
+        write_preheader(Opts),
         run(Rest, Opts).
 
+write_preheader(Opts) :-
+        member(format(sssom),Opts),
+        !,
+        cmt('',license,'https://creativecommons.org/publicdomain/zero/1.0/'),
+        cmt('',mapping_tool,'https://github.com/cmungall/rdf_matcher'),
+        forall((member(metadata(P=V),Opts),nonvar(P)),
+               cmt('',P,V)),
+        get_time(T),format_time(atom(Date),'%F',T),
+        cmt('',mapping_date,Date),
+        %forall((member(P=EnvVar,
+        %               [creator_id='ORCID']),
+        %        get_env(EnvVar,X)),
+        %       cmt('',P,X)),
+        write_curie_map(Opts).
+write_preheader(_).
+
+write_curie_map(_) :-
+        setof(P,O^obj_has_prefix(O,P),Ps),
+        !,
+        write('#curie_map:\n'),
+        forall((member(P,Ps),
+                rdf_current_ns(P,URI)),
+               cmt('  ',P,URI)).
+write_curie_map(_).
+
+cmt(Pad,Prop,Val) :-
+        format('#~w~w: "~w"~n',[Pad,Prop,Val]).
 
 run([learn|_Args], Opts) :-
         materialize_index(eq_from_match(+,+,-,-,-,+,+)),
@@ -395,17 +428,24 @@ obj_label(X,N) :-
 obj_label(_,'') :- !.
 
 infer_confidence(Vals, Conf) :-
-        findall(W,((weight(W,Conditions),
-                    all_conditions_match(Conditions,Vals))),
+        findall(W,((clause(weight(W,Conditions),Body),
+                    all_conditions_match(Conditions,Vals,Body))),
                 Weights),
         sumlist(Weights,Weight),
         % logit to prob
         Conf is 1/(1+2**(-Weight)).
 
-all_conditions_match([],_).
-all_conditions_match([C|Cs],Vals) :-
+all_conditions_match([],_,Body) :- Body.
+all_conditions_match([C=V|Cs],Vals,Body) :-
+        atom_concat(any_,BaseC,C),
+        !,
+        (   atom_concat(subject_,BaseC,C2)
+        ;   atom_concat(object_,BaseC,C2)),
+        all_conditions_match([C2=V|Cs],Vals,Body).
+all_conditions_match([C|Cs],Vals,Body) :-
+        debug(weights,'Checking ~q in ~w against ~q // ~q',[C,Cs,Vals,Body]),
         member(C,Vals),
-        all_conditions_match(Cs,Vals).
+        all_conditions_match(Cs,Vals,Body).
 
         
 
@@ -585,7 +625,6 @@ handle_opts(Opts) :-
         opt_forall(ontology(Prefix),set_ontology(Prefix),Opts),
         opt_forall(consult(X),consult(X),Opts),
         opt_forall(weights(X),consult(X),Opts),
-        forall(weight(W,X),debug(rdf_matcher, 'Weight: ~w <- ~q~n',[W,X])),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
         opt_forall(termfile(X),load_terms_from_file(X),Opts),
         opt_forall(termlist(X),make_terms_from_list(X),Opts),
