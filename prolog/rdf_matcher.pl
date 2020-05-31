@@ -32,6 +32,7 @@
            inter_pair_match/4,
            inter_pair_cmatch/4,
            exact_inter_pair_match/11,
+           new_inter_pair_match/4,
            new_pair_match/4,
            new_pair_cmatch/4,
            rightnew_pair_match/4,
@@ -61,7 +62,9 @@
 
            synthesize_class/5,
            merge_into/3,
-           add_match_to_graph/3
+           add_match_to_graph/3,
+
+           entity_category/2
            ]).
 
 :- use_module(library(porter_stem)).
@@ -75,6 +78,10 @@
 :- setting(ontology, atom,'','').
 
 :- rdf_register_prefix(skos, 'http://www.w3.org/2004/02/skos/core#').
+:- rdf_register_prefix(inca, 'https://w3id.org/inca/').
+
+:- multifile user:weight/2.
+:- dynamic user:weight/2.
 
 set_ontology(Ont) :-
         debug(rdf_matcher, 'Setting ontology to ~w',[Ont]),
@@ -121,6 +128,8 @@ pmap(narrow, skos:narrowMatch).
 
 pmap(xref, oio:hasDbXref).
 
+objpmap(exact, skos:exactMatch).
+
 inexact(broad).
 inexact(narrow).
 inexact(related).
@@ -138,7 +147,7 @@ nonmut(uri).
 literal_string(S^^_,S).
 literal_string(S@_,S).
 
-literal_atom(L,A) :- literal_string(L,S),atom_string(A,S).
+literal_atom(L,A) :- literal_string(L,S),!,atom_string(A,S).
 
 opt_literal_atom(L,A) :- literal_atom(L,A), !.
 opt_literal_atom(A,A) :- atomic(A).
@@ -160,15 +169,20 @@ basic_annot(Obj,P,V) :-
 basic_annot(Obj,P,V,T) :-
         pmap(P,P1),
         obj(Obj),
-        T=rdf(Obj,P1,Lit),
+        T=rdf(Obj,P1,Val),
         T,
-        literal_atom(Lit,V).
+        literal_atom(Val,V).
 basic_annot(Obj,id,V,id(V)) :-
         obj(Obj),
         rdf_global_id(Pre:Post,Obj),
         concat_atom([Pre,Post],:,V).
 basic_annot(Obj,uri,Obj,uri(Obj)) :-
         obj(Obj).
+%basic_annot(Obj,P,Val,uri(Val)) :-
+%        objpmap(P,P1),
+%        obj(Obj),
+%        T=rdf(Obj,P1,Val),
+%        T.
 
 %! tr_annot(?Object, ?AnnotProp, ?MutVal ,?RdfTripleTerm, ?MutFunc, ?OrigVal) is nondet
 %
@@ -489,8 +503,19 @@ inter_pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C2,C2x),
         inter_pair_match(C1x,C2x,V,Info).
 
+new_inter_pair_match(C1,C2,V,Info) :-
+        inter_pair_match(C1,C2,V,Info),
+        \+ equivalent(C1,_),
+        \+ equivalent(_,C1),
+        \+ equivalent(C2,_),
+        \+ equivalent(_,C2).
+
 
 %:- rdf_meta new_pair_match(r,r,-,-).
+%
+% an inter_pair_match/4 in which the prefixes
+% for which there is no existing match for C1 in prefix(C2)
+% and there is no existing match for C2 in prefix(C1)
 new_pair_match(C1,C2,V,Info) :-
         inter_pair_match(C1,C2,V,Info),
         has_prefix(C1,Pfx1),
@@ -917,30 +942,50 @@ quick_match(X,Y,Info) :-
         Info=m(XPN,YPN).
 
 % for a given successful Goal, serialize to results rdf graph
+% NOTE: due to a bug in earlier owlapi a new version should be used see https://github.com/owlcs/owlapi/issues/875
 add_match_to_graph(G,Graph,Opts) :-
-        debug(rdf_matcher,'Adding match: ~q to ~q',[G,Graph]),
+        debug(rdf_matcher,'Adding match: ~q to ~q // Opts=~w',[G,Graph,Opts]),
         G =.. [_,Sub,Obj|Args],
         option(match_predicate(Pred),Opts,owl:equivalentClass),
-        (   Pred=owl:equivalentClass,
-            rdf(Sub,rdf:type,Type),
-            rdf(Obj,rdf:type,Type),
-            fix_equiv_pred(Type,Pred1)
-        ->  true
-        ;   Pred1=Pred),
-        rdf_global_id(Pred1,Pred2),
+        %(   Pred=owl:equivalentClass,
+        %    rdf(Sub,rdf:type,Type),
+        %    rdf(Obj,rdf:type,Type),
+        %    fix_equiv_pred(Type,Pred1)
+        %->  true
+        %;   Pred1=Pred),
+        rdf_global_id(Pred,Pred2),
         rdf_assert(Sub,Pred2,Obj,Graph),
-        assert_label(Sub,Pred2,Obj,Graph,inca:sourceLabel,Sub),
-        assert_label(Sub,Pred2,Obj,Graph,inca:targetLabel,Obj),
+        rdf_create_bnode(Axiom),
+        rdf_assert(Axiom,rdf:type,owl:'Axiom',Graph),
+        rdf_assert(Axiom,owl:annotatedSource,Sub,Graph),
+        rdf_assert(Axiom,owl:annotatedTarget,Obj,Graph),
+        rdf_assert(Axiom,owl:annotatedProperty,Pred2,Graph),
+        assert_label(Axiom,Graph,inca:sourceLabel,Sub),
+        assert_label(Axiom,Graph,inca:targetLabel,Obj),
+        (   member(info(_,rdf(_,SourcePred,_)-rdf(_,TargetPred,_),ProcessStep),Args),
+            has_prefix(Sub,SubPrefix),
+            has_prefix(Obj,ObjPrefix),
+            rdf_global_id(SubPrefix:'',SubPrefixURL),
+            rdf_global_id(ObjPrefix:'',ObjPrefixURL)
+        ->  rdf_assert(Axiom,inca:sourcePredicate,SourcePred,Graph),
+            rdf_assert(Axiom,inca:targetPredicate,TargetPred,Graph),
+            rdf_assert(Axiom,inca:sourcePrefix,SubPrefixURL,Graph),
+            rdf_assert(Axiom,inca:targetPrefix,ObjPrefixURL,Graph),
+            rdf_assert(Axiom,inca:processingStep,ProcessStep,Graph)
+        ;   true),
         sformat(Info,'Info: ~w',[Args]),
         rdf_canonical_literal(Info,InfoLit),
-        rdf_assert_annotated(Sub,Pred2,Obj,Graph,rdfs:comment,InfoLit).
+        rdf_assert(Axiom,rdfs:comment,InfoLit,Graph),
+        % this is redundantly asserted each time
+        rdf_assert(Graph,rdf:type,owl:'Ontology',Graph).
 
-assert_label(Sub,Pred,Obj,Graph,AP,X) :-
+
+assert_label(Axiom,Graph,AP,X) :-
         rdf(X,rdfs:label,Label),
         !,
         rdf_assert(AP,rdfs:type,owl:'AnnotationProperty',Graph),
-        rdf_assert_annotated(Sub,Pred,Obj,Graph,AP,Label).
-assert_label(_,_,_,_,_,_).
+        rdf_assert(Axiom,AP,Label,Graph).
+assert_label(_,_,_,_).
 
 rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
         rdf_create_bnode(Axiom),
@@ -948,12 +993,41 @@ rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
         rdf_assert(Axiom,owl:annotatedSource,Sub,Graph),
         rdf_assert(Axiom,owl:annotatedTarget,Obj,Graph),
         rdf_assert(Axiom,owl:annotatedProperty,Pred,Graph),
-        rdf_assert(Axiom,P,V,Graph),
-        rdf_assert(Sub,Pred,Obj,Graph).
+        rdf_assert(Sub,P,V,Graph).
 
-              
-% TODO: make configurable
+
+:- table entity_category/2.
+entity_category(E,C) :-
+        rdf(E,rdf:type,owl:'NamedIndividual'),
+        rdf(E,rdf:type,T),
+        entity_category(T,C).
+entity_category(E,C) :-
+        rdf(E,oio:hasOBONamespace,C),
+        !.
+entity_category(E,C) :-
+        rdfs_subclass_of(E,P),
+        parent_category(P,C),
+        \+ ((rdfs_subclass_of(E,P1),
+             rdfs_subclass_of(P1,P),
+             P1\=P,
+             parent_category(P,_))),
+        !.
+entity_category(_,thing) :- !.
+
+parent_category(E,C) :-
+        category_property(P),
+        rdf(E,P,C).
+parent_category(E,C) :-
+        rdf(E,rdf:type,C),
+        \+ rdf_global_id(owl:_,C).
+
+category_property('https://w3id.org/biolink/vocab/category').
+category_property('http://dbpedia.org/ontology/category').
+
+% make configurable by having equiv axiom
+parent_relation(X) :- rdf(X,skos:exactMatch,owl:subClassOf).
 parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
 parent_relation('http://purl.obolibrary.org/obo/RO_0001025').
 parent_relation('http://purl.obolibrary.org/obo/BFO_0000050').
+
 

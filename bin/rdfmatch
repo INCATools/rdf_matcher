@@ -10,6 +10,7 @@
 :- use_module(library(option)).
 
 :- use_module(library(sparqlprog/io_utils)).
+:- use_module(library(sparqlprog/owl_util)).
 %:- use_module(library(rule_eval)).
 :- use_module(library(index_util)).
 
@@ -23,7 +24,6 @@
 :- use_module(library(semweb/turtle)).
 
 :- rdf_register_prefix(rdfmatch_user, 'http://example.org/rdfmatch_user/').
-:- rdf_register_prefix(inca, 'https://w3id.org/inca/').
 
 
 % note: when we switc to swipl 7.8 consider using new stack options
@@ -117,6 +117,11 @@ wmain(Argv) :-
           longflags([consult]),
           shortflags([c]),
           help('Prolog program to load/consult')
+         ],
+         [opt(weights), type(atom),
+          longflags([weights]),
+          shortflags([w]),
+          help('Prolog weights file to load/consult')
          ],
          [opt(use), type(atom),
           longflags([use]),
@@ -230,8 +235,25 @@ run([learn|_Args], Opts) :-
         debug(rdf_matcher,'Eval rules',[]),
         eval_and_show_rules(Rules).
 
+%run([traindata|_Args], Opts) :-
+%        write_evidence(eq_from_match(_,_,_,_,_,_,_)),
+%        write_evidence(eq_from_shared_xref(_,_,_,_,_)),
+%        write_evidence(equivalent(_,_)).
+  
+%run([traindata_objs|_Args], Opts) :-
+%        write_facts(obj(X)).
+
+%obj(X) :- equivalent(X,_).
+%obj(X) :- equivalent(_,X).
+
+
+run([traindata|_Args], _Opts) :-
+        write_facts(eq_from_match(_,_,_,_,_,_,_)),
+        write_facts(eq_from_shared_xref(_,_,_,_,_)),
+        write_facts(evidence(equivalent(A,B),true), equivalent(A,B)).
+
 run([classify, WeightFile | _Args], Opts) :-
-        use_module(library(rule_eval)),
+        use_module(library(rule_inference)),
         consult(WeightFile),
         forall(infer_fact(equivalent(X,Y),_,W),
                write_result(eq(X,Y,W,foo),Opts)).
@@ -246,11 +268,12 @@ run([intra_match|_Args], Opts) :-
         write_all_results(X,G,Opts).
 
 run([exact|_Args], Opts) :-
-        write_result_wrap(m(c1,c2,c1parents,c2parents,conf,match,info,alt_c1,alt_c2,ignored_c1,ignored_c2),Opts),
+        write_result_wrap(m(c1,c2,c1parents,c2parents,conf,match,info,alt_c1,alt_c2,ignored_c1,ignored_c2),[no_triple(true)|Opts]),
         G = exact_inter_pair_match(X,_,_,_,_,_,_,_,_,_,_),
         write_all_results(X,G,Opts).
 
 run([new_match|_Args], Opts) :-
+        %G = new_inter_pair_match(X,_,_,_Info),
         G = new_pair_match(X,_,_,_Info),
         write_all_results(X,G,Opts).        
 
@@ -318,8 +341,16 @@ show_turtle(G) :-
         read_file_to_codes(File, Codes,[]),
         format(Codes).
 
+write_evidence(G) :-
+        write_facts(evidence(G,true),G).
+write_facts(G) :-
+        write_facts(G,G).
+write_facts(T,G) :-
+        forall(G, format('~q.~n',[T])).
+
 
 fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty',P).
+
 
 %! write_all_results(?X, +Goal, +Opts:list) is det.
 %
@@ -332,15 +363,22 @@ write_all_results(X,G,Opts) :-
         opt_query_constraint_post(X,G,PostG,Opts),
         forall((PreG,G,PostG),
                write_result_wrap(G,Opts)),
-        (   option(rdf_graph(RdfFile),Opts)
+        (   option(rdf_graph(RdfFile),Opts),
+            nonvar(RdfFile)
         ->  rdf_save_turtle(RdfFile,[graph(match_graph)])
         ;   true).
 
 write_result_wrap(G,Opts) :-
-        select(rdf_graph(_),Opts,Opts2),
+        select(rdf_graph(GF),Opts,Opts2),
+        nonvar(GF),
+        \+ member(no_triple(true),Opts),
         !,
         write_result_wrap(G,Opts2),
         add_match_to_graph(G,match_graph,Opts2).
+write_result_wrap(G,Opts) :-
+        member(format(sssom),Opts),
+        !,
+        write_sssom_row(G,Opts).
 write_result_wrap(G,Opts) :-
         select(inject_labels(Inject),Opts,Opts2),
         nonvar(Inject),
@@ -356,6 +394,118 @@ obj_label(X,N) :-
         !.
 obj_label(_,'') :- !.
 
+infer_confidence(Vals, Conf) :-
+        findall(W,((weight(W,Conditions),
+                    all_conditions_match(Conditions,Vals))),
+                Weights),
+        sumlist(Weights,Weight),
+        % logit to prob
+        Conf is 1/(1+2**(-Weight)).
+
+all_conditions_match([],_).
+all_conditions_match([C|Cs],Vals) :-
+        member(C,Vals),
+        all_conditions_match(Cs,Vals).
+
+        
+
+write_sssom_row(Row,Opts) :-
+        Row =.. [_,Sub,Obj,M,Info|_Args],
+        Info=info(_,rdf(_,SubP,_SubV)-rdf(_,ObjP,_ObjV),Step),
+        ensure_curie(Sub,SubId),
+        ensure_curie(Obj,ObjId),
+        has_prefix(Sub,SubSrc),
+        has_prefix(Obj,ObjSrc),
+        obj_label(Sub,SubLabel),
+        obj_label(Obj,ObjLabel),
+        entity_category(Sub,SubCat),
+        entity_category(Obj,ObjCat),
+        BaseType='Lexical',
+        (   Step=stem
+        ->  Types=[BaseType,'Stemming']
+;           Types=[BaseType]),
+        option(match_predicate(Pred),Opts,owl:equivalentClass),
+        Vals1=[
+              subject_id=SubId,
+              subject_label=SubLabel,
+              predicate_id=Pred,
+              object_id=ObjId,
+              object_label=ObjLabel,
+              match_type=Types,
+              subject_source=SubSrc,
+              object_source=ObjSrc,
+              mapping_tool=rdf_matcher,
+              confidence=Conf,
+              subject_match_field=SubP,
+              object_match_field=ObjP,
+              subject_category=SubCat,
+              object_category=ObjCat,
+              match_string=M,
+              comment='.'
+             ],
+        normalize_vals(Vals1,Vals),
+        infer_confidence(Vals,Conf),
+        write_vals(Vals,Opts),
+        !.
+write_sssom_row(Row,_Opts) :-
+        Row =.. [_,null|_],
+        !.
+write_sssom_row(Row,_Opts) :-
+        format(user_error,'Failed: ~w~n',[Row]).
+
+normalize_vals([],[]).
+normalize_vals([C=X|L],[C=Y|L2]) :-
+        normalize_val(X,Y),
+        !,
+        normalize_vals(L,L2).
+
+normalize_val(X,X) :- var(X),!.
+normalize_val(X,X) :- is_list(X),!.
+normalize_val(X^^_,X) :- !.
+normalize_val(X@_,X) :- !.
+normalize_val(X,Y) :- ensure_curie(X,Y),!.
+
+:- dynamic is_header_emitted.
+write_vals(Vals,Opts) :-
+        \+ is_header_emitted,
+        !,
+        assert(is_header_emitted),
+        findall(C,member(C=_,Vals),Cs),
+        concat_atom(Cs,'\t',Line),
+        write(Line),
+        nl,
+        write_vals(Vals,Opts).
+
+
+write_vals([],_) :-
+        nl.
+write_vals([Val],Opts) :-
+        !,
+        write_val(Val,Opts),
+        nl.
+write_vals([Val|Vals],Opts) :-
+        !,
+        write_val(Val,Opts),
+        write('\t'),
+        write_vals(Vals,Opts).
+
+write_val(_= (S^^_),_) :-
+        !,
+        write(S).
+write_val(_= (S@_),_) :-
+        !,
+        write(S).
+write_val(_=L,_) :-
+        is_list(L),
+        !,
+        concat_atom(L,'|',V),
+        write(V).
+write_val(_=V,_) :-
+        !,
+        ensure_curie(V,V2),
+        write(V2).
+
+        
 
 % Unify G with a goal that succeeds
 % if X passes criteria specified in Opts.
@@ -434,6 +584,8 @@ handle_opts(Opts) :-
         opt_forall(use_no_import(X),use_module(library(X),[]),Opts),
         opt_forall(ontology(Prefix),set_ontology(Prefix),Opts),
         opt_forall(consult(X),consult(X),Opts),
+        opt_forall(weights(X),consult(X),Opts),
+        forall(weight(W,X),debug(rdf_matcher, 'Weight: ~w <- ~q~n',[W,X])),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
         opt_forall(termfile(X),load_terms_from_file(X),Opts),
         opt_forall(termlist(X),make_terms_from_list(X),Opts),

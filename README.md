@@ -15,6 +15,14 @@ All matches, as TSV:
 
 `rdfmatch  -f tsv -i basic.ttl match`
 
+Also save triples
+
+`rdfmatch  -f tsv -i basic.ttl -G matches.ttl match`
+
+As above, use skos rather than owl as vocab
+
+`rdfmatch  -f tsv -i basic.ttl -G matches.ttl --predicate skos:exactMatch match`
+
 Contrain to classes with `http://example.org/x/` prefix:
 
 `rdfmatch -p x  -f tsv -i basic.ttl match`
