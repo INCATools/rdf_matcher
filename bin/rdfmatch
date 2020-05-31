@@ -230,7 +230,11 @@ wmain(Argv) :-
         opt_if_call(interactive,sparqlprog_shell(Opts),Opts),
         opt_if_call(prolog,prolog_shell(Opts),Opts),
         write_preheader(Opts),
-        run(Rest, Opts).
+        run(Rest, Opts),
+        !,
+        debug(info,'Finished!',[]),
+        halt.
+
 
 write_preheader(Opts) :-
         member(format(sssom),Opts),
@@ -291,6 +295,14 @@ run([classify, WeightFile | _Args], Opts) :-
         forall(infer_fact(equivalent(X,Y),_,W),
                write_result(eq(X,Y,W,foo),Opts)).
 %               format('eq\t~w\t~w\t~w\tlearned~n',[X,Y,W])).
+
+run([list|_Args], Opts) :-
+        forall(obj_has_prefix(O,P),
+               format('~w :: ~w~n',[P,O])).
+
+run([anymatch|_Args], Opts) :-
+        G = pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).
 
 run([match|_Args], Opts) :-
         G = inter_pair_match(X,_,_,_Info),
@@ -367,6 +379,9 @@ run([xxxsynthesize, Label|_], Opts) :-
         G=new,
         synthesize_class(Label,_Prefix,_C,G, [match(true)|Opts]),
         show_turtle(G).
+run([Cmd|_], _Opts) :-
+        format(user_error,'No such cmd: ~w~n',[Cmd]),
+        halt(1).
 
 show_turtle(G) :-
         tmp_file(new_classes,File),
