@@ -33,7 +33,7 @@
 ## X ontology (base)
 
 x:organ a owl:Class ; category: anatomy: ;
-   rdfs:label "organ" .
+   rdfs:label "organ"@en .
 x:appendage a owl:Class ; category: anatomy: ;
    rdfs:label "appendage" .
 x:tissue a owl:Class ; category: anatomy: ;
