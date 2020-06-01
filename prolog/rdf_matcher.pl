@@ -1,5 +1,6 @@
 :- module(rdf_matcher,
           [
+           obj/1,
            index_pairs/0,
            index_pairs/1,
            obj_has_prefix/2,

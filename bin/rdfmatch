@@ -78,7 +78,11 @@ wmain(Argv) :-
          [opt(prefix), type(atom),
           longflags(['prefix']),
           shortflags([p]),
-          help('Prefix to perform matching against')
+          help('Prefix for which subject_id must match')
+         ],
+         [opt(match_prefix), type(atom),
+          longflags(['match_prefix']),
+          help('Prefix for which object_id must match')
          ],
          [opt(prefix_mapping), type(atom),
           longflags(['prefix_mapping']),
@@ -296,63 +300,63 @@ run([classify, WeightFile | _Args], Opts) :-
                write_result(eq(X,Y,W,foo),Opts)).
 %               format('eq\t~w\t~w\t~w\tlearned~n',[X,Y,W])).
 
-run([list|_Args], Opts) :-
+run([list|_Args], _Opts) :-
         forall(obj_has_prefix(O,P),
                format('~w :: ~w~n',[P,O])).
 
 run([anymatch|_Args], Opts) :-
         G = pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([match|_Args], Opts) :-
-        G = inter_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).
+        G = inter_pair_match(_,_,_,_Info),
+        write_all_results(G,Opts).
 
 run([intra_match|_Args], Opts) :-
         G = intra_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([exact|_Args], Opts) :-
         write_result_wrap(m(c1,c2,c1parents,c2parents,conf,match,info,alt_c1,alt_c2,ignored_c1,ignored_c2),[no_triple(true)|Opts]),
         G = exact_inter_pair_match(X,_,_,_,_,_,_,_,_,_,_),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([new_match|_Args], Opts) :-
         %G = new_inter_pair_match(X,_,_,_Info),
         G = new_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).        
+        write_all_results_old(X,G,Opts).        
 
 run([tri_match|_Args], Opts) :-
         G = tri_match(C1,_C2,_C3,_Info),
-        write_all_results(C1,G,Opts).        
+        write_all_results_old(C1,G,Opts).        
 run([triad_nc|_Args], Opts) :-
         G = new_unique_match_triad_nc(C1,_C2,_C3),
-        write_all_results(C1,G,Opts).        
+        write_all_results_old(C1,G,Opts).        
 
 run([rightnew_match|_Args], Opts) :-
         G = rightnew_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).        
+        write_all_results_old(X,G,Opts).        
 
 run([unique_match|_Args], Opts) :-
         G = new_unique_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([cluster|_Args], Opts) :-
         materialize_index(new_pair_match(+,+,-,-)),
         %materialize_index(transitive_new_match(+,+)),
         G = transitive_new_match_set_pair(X,_,_),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([ucluster|_Args], Opts) :-
         materialize_index(new_unique_pair_match(+,+,-,-)),
         %materialize_index(transitive_unique_match(+,+)),
         G = transitive_unique_match_set_member(X,_),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([trial|_Args], Opts) :-
         materialize_index(new_unique_pair_match(+,+,-,-)),
         G = new_unique_match_triad(X,_,_),
-        write_all_results(X,G,Opts).
+        write_all_results_old(X,G,Opts).
 
 run([unmatched,Pfx,XPfx|_Args], Opts) :-
         G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
@@ -399,13 +403,28 @@ write_facts(T,G) :-
 
 fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty',P).
 
+%! write_all_results(+Goal, +Opts:list) is det.
+%
+% also filters based on Opts
+write_all_results(G,Opts) :-
+        debug(rdf_matcher,'Goal=~q',[G]),
+        G =.. [_,Sub,Obj|_],
+        forall((obj(Sub),
+                \+filter_subject(Sub,Opts),
+                G,
+                \+filter_object(Obj,Opts)),
+               write_result_wrap(G,Opts)),
+        (   option(rdf_graph(RdfFile),Opts),
+            nonvar(RdfFile)
+        ->  rdf_save_turtle(RdfFile,[graph(match_graph)])
+        ;   true).
 
-%! write_all_results(?X, +Goal, +Opts:list) is det.
+%! write_all_results_old(?X, +Goal, +Opts:list) is det.
 %
 % writes value of X for every Goal
 %
 % also filters based on Opts
-write_all_results(X,G,Opts) :-
+write_all_results_old(X,G,Opts) :-
         debug(rdf_matcher,'Goal=~q',[G]),
         opt_query_constraint_pre(X,PreG,Opts),
         opt_query_constraint_post(X,G,PostG,Opts),
@@ -560,6 +579,25 @@ write_val(_=V,_) :-
         ensure_curie(V,V2),
         write(V2).
 
+filter_subject(X,Opts) :-
+        option(prefix(Prefix),Opts),
+        nonvar(Prefix),
+        \+ obj_has_prefix(X,Prefix).
+filter_subject(X,Opts) :-
+        filter_entity(X,Opts).
+filter_object(X,Opts) :-
+        option(match_prefix(Prefix),Opts),
+        nonvar(Prefix),
+        \+ obj_has_prefix(X,Prefix).
+filter_object(X,Opts) :-
+        filter_entity(X,Opts).
+filter_entity(X,Opts) :-
+        option(obsoletes(Obs),Opts),
+        Obs=false,
+        \+ is_not_obsolete(X).
+
+
+
         
 
 % Unify G with a goal that succeeds
@@ -639,7 +677,7 @@ handle_opts(Opts) :-
         opt_forall(use_no_import(X),use_module(library(X),[]),Opts),
         opt_forall(ontology(Prefix),set_ontology(Prefix),Opts),
         opt_forall(consult(X),consult(X),Opts),
-        opt_forall(weights(X),consult(X),Opts),
+        opt_forall(weights(X),load_weights(X),Opts),
         opt_forall(input(X),rdf_load_wrap(X),Opts),
         opt_forall(termfile(X),load_terms_from_file(X),Opts),
         opt_forall(termlist(X),make_terms_from_list(X),Opts),
@@ -673,6 +711,13 @@ opt_if(T,Opts,Opts2) :-
 
 optional(G) :- G,!.
 optional(_).
+
+load_weights(F) :-
+        exists_file(F),
+        !,
+        consult(F).
+load_weights(F) :-
+        ensure_loaded(library(rdf_matcher/F)).
 
 
 rdf_load_wrap(X) :-
