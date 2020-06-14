@@ -312,6 +312,10 @@ run([match|_Args], Opts) :-
         G = inter_pair_match(_,_,_,_Info),
         write_all_results(G,Opts).
 
+run([match2|_Args], Opts) :-
+        G = inter_pair_match(X,_,_,_Info),
+        write_all_results(X,G,Opts).        
+
 run([intra_match|_Args], Opts) :-
         G = intra_pair_match(X,_,_,_Info),
         write_all_results_old(X,G,Opts).
@@ -325,6 +329,7 @@ run([new_match|_Args], Opts) :-
         %G = new_inter_pair_match(X,_,_,_Info),
         G = new_pair_match(X,_,_,_Info),
         write_all_results_old(X,G,Opts).        
+
 
 run([tri_match|_Args], Opts) :-
         G = tri_match(C1,_C2,_C3,_Info),
@@ -358,10 +363,15 @@ run([trial|_Args], Opts) :-
         G = new_unique_match_triad(X,_,_),
         write_all_results_old(X,G,Opts).
 
+run([nomatch|_Args], Opts) :-
+        write_unmatchable(Opts).
+
+% @deprecated
 run([unmatched,Pfx,XPfx|_Args], Opts) :-
         G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
         forall((G,obj_label(X,XN)),
                write_result(unmatched(X,XN,Pfx,XPfx),Opts)).
+% @deprecated
 run([unmatched,Pfx|_Args], Opts) :-
         G = (unmatched_in(X,Pfx),has_prefix(X,XPfx)),        
         forall((G,obj_label(X,XN)),
@@ -407,8 +417,8 @@ fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty'
 %
 % also filters based on Opts
 write_all_results(G,Opts) :-
-        debug(rdf_matcher,'Goal=~q',[G]),
         G =.. [_,Sub,Obj|_],
+        debug(rdf_matcher,'goal=~q',[G]),
         forall((obj(Sub),
                 \+filter_subject(Sub,Opts),
                 G,
@@ -418,6 +428,51 @@ write_all_results(G,Opts) :-
             nonvar(RdfFile)
         ->  rdf_save_turtle(RdfFile,[graph(match_graph)])
         ;   true).
+
+
+match_prefix(P,Opts) :-
+        setof(P,O^obj_has_prefix(O,P),Ps),
+        member(P,Ps),
+        \+ ((
+             option(match_prefix(Prefix),Opts),
+             nonvar(Prefix),
+             Prefix\=P)).
+
+        
+write_unmatchable(Opts) :-
+        forall((obj(Sub),
+                has_prefix(Sub,SubSrc),
+                match_prefix(ObjSrc,Opts),
+                ObjSrc\=SubSrc,
+                \+ ((pair_match(Sub,Obj,_,_),
+                     \+ filter_object(Obj,Opts)))),
+               write_nomatch_row(Sub,ObjSrc,Opts)).
+
+write_nomatch_row(Sub,ObjSrc,Opts) :-
+        ensure_curie(Sub,SubId),
+        has_prefix(Sub,SubSrc),
+        obj_label(Sub,SubLabel),
+        entity_category(Sub,SubCat),
+        Vals=[
+               subject_id=SubId,
+               subject_label=SubLabel,
+               predicate_id='noMatch',
+               object_id=':NO_MATCH',
+               object_label='.',
+               match_type='Lexical',
+               subject_source=SubSrc,
+               object_source=ObjSrc,
+               mapping_tool=rdf_matcher,
+               confidence=0.5,
+               subject_match_field='.',
+               object_match_field='.',
+               subject_category=SubCat,
+               object_category='.',
+               match_string='.',
+               match_category='.',
+               comment='no match found'
+             ],
+        write_vals(Vals,Opts).
 
 %! write_all_results_old(?X, +Goal, +Opts:list) is det.
 %
@@ -481,8 +536,6 @@ all_conditions_match([C|Cs],Vals,Body) :-
         member(C,Vals),
         all_conditions_match(Cs,Vals,Body).
 
-        
-
 write_sssom_row(Row,Opts) :-
         Row =.. [_,Sub,Obj,M,Info|_Args],
         Info=info(_,rdf(_,SubP,_SubV)-rdf(_,ObjP,_ObjV),Step),
@@ -497,25 +550,27 @@ write_sssom_row(Row,Opts) :-
         BaseType='Lexical',
         (   Step=stem
         ->  Types=[BaseType,'Stemming']
-;           Types=[BaseType]),
+        ;   Types=[BaseType]),
+        categorize_match(Sub,Obj,MatchCat),
         option(match_predicate(Pred),Opts,owl:equivalentClass),
         Vals1=[
-              subject_id=SubId,
-              subject_label=SubLabel,
-              predicate_id=Pred,
-              object_id=ObjId,
-              object_label=ObjLabel,
-              match_type=Types,
-              subject_source=SubSrc,
-              object_source=ObjSrc,
-              mapping_tool=rdf_matcher,
-              confidence=Conf,
-              subject_match_field=SubP,
-              object_match_field=ObjP,
-              subject_category=SubCat,
-              object_category=ObjCat,
-              match_string=M,
-              comment='.'
+               subject_id=SubId,
+               subject_label=SubLabel,
+               predicate_id=Pred,
+               object_id=ObjId,
+               object_label=ObjLabel,
+               match_type=Types,
+               subject_source=SubSrc,
+               object_source=ObjSrc,
+               mapping_tool=rdf_matcher,
+               confidence=Conf,
+               subject_match_field=SubP,
+               object_match_field=ObjP,
+               subject_category=SubCat,
+               object_category=ObjCat,
+               match_string=M,
+               match_category=MatchCat,
+               comment='.'
              ],
         normalize_vals(Vals1,Vals),
         infer_confidence(Vals,Conf),

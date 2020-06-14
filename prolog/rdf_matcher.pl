@@ -53,6 +53,9 @@
            transitive_new_match/2,
            transitive_new_match_set_pair/3,
 
+
+           categorize_match/3,
+           
            eq_from_match/7,
            eq_from_shared_xref/5,
 
@@ -162,7 +165,13 @@ opt_literal_atom(A,A) :- atomic(A).
 obj(Obj) :-
         setof(Obj, rdf(Obj,_ , _), Objs),
         member(Obj,Objs),
-        rdf_is_iri(Obj).
+        rdf_is_iri(Obj),
+        has_prefix(Obj,Prefix),
+        \+ is_builtin_prefix(Prefix).
+
+is_builtin_prefix(rdfs).
+is_builtin_prefix(http).
+
 
 %obj(Obj) :-
 %        setof(Obj, rdf(Obj,rdf:type,owl:'Class'), Objs),
@@ -781,6 +790,35 @@ defrag(X,U,Frag) :-
         reverse(Parts,[Frag|Rev]),
         reverse(Rev,Parts2),
         concat_atom(Parts2,'/',U).
+
+
+has_alternative_obj_match(Sub,Obj,true) :-
+        has_prefix(Obj,ObjSrc),
+        pair_match(Sub,Obj2,_,_),
+        Obj2\=Obj,
+        has_prefix(Obj2,ObjSrc),
+        !.
+has_alternative_obj_match(_Sub,_Obj,false).
+
+has_alternative_sub_match(Sub,Obj,true) :-
+        has_prefix(Sub,SubSrc),
+        pair_match(Sub2,Obj,_,_),
+        Sub2\=Sub,
+        has_prefix(Sub2,SubSrc),
+        !.
+has_alternative_sub_match(_Sub,_Obj,false).
+
+
+categorize_match(Sub,Obj,Cat) :-
+        has_alternative_sub_match(Sub,Obj,AltSub),
+        has_alternative_obj_match(Sub,Obj,AltObj),
+        member(AltSub+AltObj = Cat,
+               [false+false = unique,
+                false+true = one_to_many,
+                true+false = many_to_one,
+                true+true = many_to_many]).
+
+
 
 declare_additional_prefixes :-
         rdf(X,'http://www.w3.org/ns/shacl#prefix',^^(Prefix1,_)),

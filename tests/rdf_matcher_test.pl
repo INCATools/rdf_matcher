@@ -64,7 +64,14 @@ test(load) :-
                 rdf_assert(A,owl:equivalentClass,B, equivGraph)),
 
         rdf_save_turtle('tests/data/foo.ttl',[graph(equivGraph),format(ttl)]),
-              
+
+        forall( (inter_pair_match(A,B,_,_), A@<B, categorize_match(A,B,Cat)),
+                writeln(mcat(A,B,Cat))),
+
+        assertion( categorize_match('http://example.org/y/foot','http://example.org/z/foot',unique) ),
+        assertion( categorize_match('http://example.org/y/bone','http://example.org/z/bone_tissue',one_to_many) ),
+        assertion( categorize_match('http://example.org/z/bone_tissue','http://example.org/y/bone',many_to_one) ),
+        assertion( categorize_match('http://example.org/x/bone_element','http://example.org/z/bone_element',many_to_many) ),
         
         nl.
 
