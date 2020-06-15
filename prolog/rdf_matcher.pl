@@ -121,6 +121,7 @@ index_pairs(Path) :-
 
 pmap(label, rdfs:label).
 pmap(label, skos:prefLabel).
+pmap(related, skos:altLabel).
 pmap(related, oio:hasRelatedSynonym).
 pmap(exact, oio:hasExactSynonym).
 pmap(broad, oio:hasBroadSynonym).
@@ -1049,13 +1050,33 @@ rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
 
 :- table entity_category/2.
 entity_category(E,C) :-
-        rdf(E,rdf:type,owl:'NamedIndividual'),
-        rdf(E,rdf:type,T),
-        entity_category(T,C).
-entity_category(E,C) :-
+        setof(C1,entity_category1(E,C1),Cs),
+        maplist(category_label,Cs,C2s),
+        concat_atom(C2s,'|',C).
+
+category_label(C,N) :-
+        atom(C),
+        rdf(C,rdfs:label,Label),
+        literal_atom(Label,N),
+        !.
+category_label(C,N) :-
+        literal_atom(C,N),
+        !.
+category_label(C,C).
+
+
+entity_category1(E,C) :-
         rdf(E,oio:hasOBONamespace,C),
         !.
-entity_category(E,C) :-
+entity_category1(E,C) :-
+        rdf(E,skos:inScheme,C),
+        !.
+entity_category1(E,C) :-
+        rdf(E,rdf:type,owl:'NamedIndividual'),
+        rdf(E,rdf:type,T),
+        entity_category1(T,C),
+        !.
+entity_category1(E,C) :-
         rdfs_subclass_of(E,P),
         parent_category(P,C),
         \+ ((rdfs_subclass_of(E,P1),
@@ -1063,7 +1084,7 @@ entity_category(E,C) :-
              P1\=P,
              parent_category(P,_))),
         !.
-entity_category(_,thing) :- !.
+entity_category1(_,thing) :- !.
 
 parent_category(E,C) :-
         category_property(P),

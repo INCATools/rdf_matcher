@@ -312,10 +312,6 @@ run([match|_Args], Opts) :-
         G = inter_pair_match(_,_,_,_Info),
         write_all_results(G,Opts).
 
-run([match2|_Args], Opts) :-
-        G = inter_pair_match(X,_,_,_Info),
-        write_all_results(X,G,Opts).        
-
 run([intra_match|_Args], Opts) :-
         G = intra_pair_match(X,_,_,_Info),
         write_all_results_old(X,G,Opts).
