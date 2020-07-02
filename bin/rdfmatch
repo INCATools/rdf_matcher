@@ -23,7 +23,7 @@
 :- use_module(library(semweb/rdfs)).
 :- use_module(library(semweb/turtle)).
 
-:- rdf_register_prefix(rdfmatch_user, 'http://example.org/rdfmatch_user/').
+:- rdf_register_prefix(external_resource, 'http://example.org/external_resource/').
 
 
 % note: when we switc to swipl 7.8 consider using new stack options
@@ -131,6 +131,11 @@ wmain(Argv) :-
           longflags([weights]),
           shortflags([w]),
           help('Prolog weights file to load/consult')
+         ],
+         [opt(label_only), type(boolean),
+          default(false),
+          longflags([label_only]),
+          help('only match things with rdfs:label')
          ],
          [opt(use), type(atom),
           longflags([use]),
@@ -304,6 +309,10 @@ run([list|_Args], _Opts) :-
         forall(obj_has_prefix(O,P),
                format('~w :: ~w~n',[P,O])).
 
+run([save,F|_], _Opts) :-
+        rdf_save_turtle(F,[]).
+
+
 run([anymatch|_Args], Opts) :-
         G = pair_match(X,_,_,_Info),
         write_all_results_old(X,G,Opts).
@@ -376,12 +385,12 @@ run([unmatched,Pfx|_Args], Opts) :-
 % rdfmatch -p x -i /tmp/eq.ttl -X /tmp/ --termlist 'bone' -d index -d rdf_matcher -i tests/data/basic.ttl merge 
 run([merge|_], Opts) :-
         G=new,
-        forall(obj_has_prefix(C,rdfmatch_user),
+        forall(obj_has_prefix(C,external_resource),
                merge_into(C,G, [match(true)|Opts])),
         show_turtle(G).
 run([synthesize,Label|_], Opts) :-
         G=new,
-        synthesize_class(Label,rdfmatch_user,_C,G, [match(true)|Opts]),
+        synthesize_class(Label,external_resource,_C,G, [match(true)|Opts]),
         show_turtle(G).
 
 % always use with -X no_index  TODO NO
@@ -437,6 +446,7 @@ match_prefix(P,Opts) :-
         
 write_unmatchable(Opts) :-
         forall((obj(Sub),
+                \+filter_subject(Sub,Opts),
                 has_prefix(Sub,SubSrc),
                 match_prefix(ObjSrc,Opts),
                 ObjSrc\=SubSrc,
@@ -646,6 +656,10 @@ filter_entity(X,Opts) :-
         option(obsoletes(Obs),Opts),
         Obs=false,
         \+ is_not_obsolete(X).
+filter_entity(X,Opts) :-
+        option(label_only(true),Opts),
+        \+ rdf(X,rdfs:label,_).
+
 
 
 
@@ -708,7 +722,7 @@ make_terms_from_list(AList) :-
 
 assert_class_from_row(Row) :-
         Row =.. [_Pred,Term|_],
-        rdf_global_id(rdfmatch_user:Term,URI),
+        rdf_global_id(external_resource:Term,URI),
         rdf_assert(URI,rdfs:label,Term@en),
         rdf_assert(URI,rdf:type,owl:'Class').
 

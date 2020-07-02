@@ -1,5 +1,6 @@
 :- module(rdf_matcher,
           [
+           infer_labels/0,
            obj/1,
            index_pairs/0,
            index_pairs/1,
@@ -1047,6 +1048,42 @@ rdf_assert_annotated(Sub,Pred,Obj,Graph,P,V) :-
         rdf_assert(Axiom,owl:annotatedProperty,Pred,Graph),
         rdf_assert(Sub,P,V,Graph).
 
+infer_labels :-
+        rdf_subject(C),
+        \+ rdf(C,rdfs:label,_),
+        infer_label(C,N),
+        rdf_assert(C,rdfs:label,N@en),
+        fail.
+infer_labels.
+
+infer_label(URI,N) :-
+        rdf_subject(URI),
+        concat_atom([_Base,Frag],'#',URI),
+        expand_camel_case(Frag,N1),
+        concat_atom(L,'_',N1),
+        concat_atom(L,' ',N),
+        !.
+expand_camel_case(In,Out) :-
+        atom_chars(In,InC),
+        expand_camel_case_chars(InC,OutC,true),
+        atom_chars(Out,OutC).
+expand_camel_case_chars([],[],_).
+expand_camel_case_chars([H|T],[' ',H|T2],false) :-
+        is_camel_hump(H),
+        !,
+        expand_camel_case_chars(T,T2,false).
+expand_camel_case_chars([H|T],[H|T2],_) :-
+        !,
+        expand_camel_case_chars(T,T2,false).
+
+is_camel_hump(H) :-
+        H @>= 'A',
+        H @=< 'Z'.
+is_camel_hump(H) :-
+        H @>= '0',
+        H @=< '9'.
+
+foo__('0').
 
 :- table entity_category/2.
 entity_category(E,C) :-
@@ -1084,6 +1121,13 @@ entity_category1(E,C) :-
              P1\=P,
              parent_category(P,_))),
         !.
+entity_category1(E,C) :-
+        rdfs_subclass_of(E,C),
+        rdf_is_iri(C),
+        \+ ((rdf(C,rdfs:subClassOf,P),
+             \+ rdf_global_id('http://schema.org/Thing',P),
+             \+ rdf_global_id(owl:'Thing',P))),
+        !.
 entity_category1(_,thing) :- !.
 
 parent_category(E,C) :-
@@ -1091,13 +1135,15 @@ parent_category(E,C) :-
         rdf(E,P,C).
 parent_category(E,C) :-
         rdf(E,rdf:type,C),
-        \+ rdf_global_id(owl:_,C).
+        \+ rdf_global_id(owl:_,C),
+        \+ rdf_global_id(skos:_,C),
+        \+ rdf_global_id(rdfs:_,C).
 
 category_property('https://w3id.org/biolink/vocab/category').
 category_property('http://dbpedia.org/ontology/category').
 
 % make configurable by having equiv axiom
-parent_relation(X) :- rdf(X,skos:exactMatch,owl:subClassOf).
+parent_relation(X) :- rdf(X,skos:exactMatch,rdfs:subClassOf).
 parent_relation('http://purl.obolibrary.org/obo/gaz#located_in').
 parent_relation('http://purl.obolibrary.org/obo/RO_0001025').
 parent_relation('http://purl.obolibrary.org/obo/BFO_0000050').
