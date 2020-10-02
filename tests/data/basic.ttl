@@ -16,8 +16,15 @@
 @prefix category: <http://dbpedia.org/ontology/category> .
 @prefix anatomy: <https://w3id.org/biolink/vocab/AnatomicalEntity> .
 @base <http://example.org> .
+@prefix inca: <https://w3id.org/inca/> .
+
 
 :test.owl rdf:type owl:Ontology .
+
+[ inca:pattern "structure" ;
+  inca:replacement ""
+].
+
 
 [ sh:declare
     [ sh:prefix "biolink" ; sh:namespace "https://w3id.org/biolink/vocab/"],
@@ -209,6 +216,14 @@ z:foot a owl:Class ; category: anatomy: ;
 
 z:hindlimb a owl:Class ; category: anatomy: ;
   rdfs:label "hindlimb" ;
+  rdfs:subClassOf z:appendage .
+
+z:tail a owl:Class ; category: anatomy: ;
+  rdfs:label "tail" ;
+  rdfs:subClassOf z:appendage .
+  
+x:tail_structure a owl:Class ; category: anatomy: ;
+  rdfs:label "tail structure" ;
   rdfs:subClassOf z:appendage .
 
 a:bone_of_hand a owl:Class ; category: anatomy: ;

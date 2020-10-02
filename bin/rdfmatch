@@ -8,6 +8,7 @@
 :- use_module(library(main)).
 :- use_module(library(optparse)).
 :- use_module(library(option)).
+:- use_module(library(md5)).
 
 :- use_module(library(sparqlprog/io_utils)).
 :- use_module(library(sparqlprog/owl_util)).
@@ -75,6 +76,11 @@ wmain(Argv) :-
           default(none),
           help('path to directory to be used for materializing index')
          ],
+         [opt(refresh_index), type(boolean),
+          default(false),
+          longflags([refresh]),
+          help('clears index')
+         ],
          [opt(prefix), type(atom),
           longflags(['prefix']),
           shortflags([p]),
@@ -136,6 +142,11 @@ wmain(Argv) :-
           default(false),
           longflags([label_only]),
           help('only match things with rdfs:label')
+         ],
+         [opt(include_unmatched), type(boolean),
+          default(false),
+          longflags([include_unmatched]),
+          help('if true, include unmatched')
          ],
          [opt(use), type(atom),
           longflags([use]),
@@ -234,7 +245,8 @@ wmain(Argv) :-
         handle_opts(Opts),
         debug(rdf_matcher,'Opts = ~q.',[Opts]),
         inject_prefixes,
-        option(indexdir(IndexDir),Opts,none),
+        get_index_dir(IndexDir,Opts),
+        debug(rdf_matcher,'IndexDir = ~q.',[IndexDir]),
         index_pairs(IndexDir),
         opt_if_call(interactive,sparqlprog_shell(Opts),Opts),
         opt_if_call(prolog,prolog_shell(Opts),Opts),
@@ -244,6 +256,30 @@ wmain(Argv) :-
         debug(info,'Finished!',[]),
         halt.
 
+
+get_index_dir(IndexDir,Opts) :-
+        option(indexdir(IndexDir),Opts,none),
+        IndexDir==none,
+        !.
+get_index_dir(IndexDir,Opts) :-
+        option(indexdir(D1),Opts,none),
+        rdf_all_graphs_hash(Hash),
+        concat_atom([D1,Hash],/,IndexDir),
+        (   option(refresh_index(true),Opts),
+            exists_directory(IndexDir)
+        ->  sformat(Cmd,'rm ~w/*',[IndexDir]),
+            shell(Cmd,_)
+        ;   true),
+        (   \+ exists_directory(IndexDir)
+        ->  make_directory_path(IndexDir)
+        ;   true).
+
+rdf_all_graphs_hash(Hash) :-
+        setof(Hash,G^rdf_graph_property(G, hash(Hash)),Hashes),
+        !,
+        concat_atom(Hashes,HashesAtom),
+        md5_hash(HashesAtom,Hash,[]).
+rdf_all_graphs_hash(nohash).
 
 write_preheader(Opts) :-
         member(format(sssom),Opts),
@@ -388,6 +424,13 @@ run([merge|_], Opts) :-
         forall(obj_has_prefix(C,external_resource),
                merge_into(C,G, [match(true)|Opts])),
         show_turtle(G).
+
+run([query,QA|_], Opts) :-
+        atom_to_term(QA,Query,Bindings),
+        forall(Query,
+               write_result(Query,Opts)).
+
+
 run([synthesize,Label|_], Opts) :-
         G=new,
         synthesize_class(Label,external_resource,_C,G, [match(true)|Opts]),
@@ -429,6 +472,9 @@ write_all_results(G,Opts) :-
                 G,
                 \+filter_object(Obj,Opts)),
                write_result_wrap(G,Opts)),
+        (   \+ member(write_unmatched(true),Opts)
+        ->  write_unmatchable(Opts)
+        ;   true),
         (   option(rdf_graph(RdfFile),Opts),
             nonvar(RdfFile)
         ->  rdf_save_turtle(RdfFile,[graph(match_graph)])
@@ -786,6 +832,7 @@ load_weights(F) :-
 
 
 rdf_load_wrap(X) :-
+        debug(rdf_matcher,'Loading: ~w',[X]),
         catch(rdf_load(X),
               _E,
               rdf_load_library(X)).

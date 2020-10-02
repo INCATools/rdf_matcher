@@ -1,3 +1,4 @@
+
 :- module(rdf_matcher,
           [
            infer_labels/0,
@@ -64,6 +65,11 @@
            unmatched_in/2,
 
            remove_inexact_synonyms/0,
+           transfer_annotation_provenance/0,
+           inferred_stopword/1,
+           inferred_stopword/2,
+           inferred_stopword/3,
+           inferred_stopword/4,
 
            synthesize_class/5,
            merge_into/3,
@@ -76,6 +82,7 @@
 :- use_module(library(index_util)).
 %:- use_module(library(tabling)).
 :- use_module(library(semweb/rdf11)).
+:- use_module(library(semweb/rdfs)).
 :- use_module(library(sparqlprog/owl_util)).
 :- use_module(library(sparqlprog/search_util)).
 
@@ -102,7 +109,7 @@ index_pairs :-
         index_pairs(none).
 index_pairs(no_index) :- !.
 index_pairs(Path) :-
-        materialize_index(obj(+)),
+        %materialize_index(obj(+)),
         Goals=[
                %equivalent(+,+),
                basic_annot(+,+,-,-),
@@ -164,6 +171,7 @@ literal_atom(L,A) :- literal_string(L,S),!,atom_string(A,S).
 opt_literal_atom(L,A) :- literal_atom(L,A), !.
 opt_literal_atom(A,A) :- atomic(A).
 
+:- table obj/1.
 obj(Obj) :-
         setof(Obj, rdf(Obj,_ , _), Objs),
         member(Obj,Objs),
@@ -220,16 +228,39 @@ mutate(stem,_,V,V2) :-
 mutate(downcase,_,V,V2) :-
         downcase_atom(V,V2).
 
+term_replacement(Pattern,Replacement) :-
+        rdf(S,inca:pattern,PatternLit),
+        rdf(S,inca:replacement,ReplacementLit),
+        literal_atom(PatternLit,Pattern),
+        literal_atom(ReplacementLit,Replacement).
+term_replacement(Pattern,'') :-
+        inferred_stopword(Pattern).
+term_replacement(eous,eus). % TODO config
+term_replacement('  *',' ').
+term_replacement('^ +','').
+term_replacement(' +$','').
+
+term_replacements(Pairs) :-
+        setof(P-R,term_replacement(P,R),Pairs).
+
+replace_termsyns(T,S) :-
+        nb_setval(term,T),
+        forall(term_replacement(Pat,Rep),
+               (   nb_getval(term,T1),
+                   re_replace(Pat,Rep,T1,T2),
+                   nb_setval(term,T2))),
+        nb_getval(term,S),
+        !.
+replace_termsyns(T,_) :-
+        throw(error(no_replace(T))).
+
+
 % TODO: tokenize
+
 custom_porter_stem(T,S) :-
-        atom_concat(Obj,eous,T),
-        atom_concat(Obj,eus,T2),
         is_ascii(T),
-        !,
+        replace_termsyns(T,T2),
         porter_stem(T2,S).
-custom_porter_stem(T,S) :-
-        is_ascii(T),
-        porter_stem(T,S).
 
 % porter_stem only accepts ISO-Latin 1. To avoid conversion
 % (not sure how) we simply do not attempt to stem anything that isn't on
@@ -781,7 +812,8 @@ used_prefix(P) :-
         member(P,Ps).
 used_prefix1(P) :-
         rdf(X,rdf:type,_),
-        has_prefix(X,P).
+        has_prefix(X,P),
+        debug(prefixes,'Prefix ~w -> ~w',[X,P]).
 
 guess_uribase(X,U) :-
         rdf(X,_,_),
@@ -863,8 +895,10 @@ equivalent(C1,C2) :- rdf(C2,owl:equivalentClass,C1).
 equivalent(C1,C2) :- rdf(C1,skos:exactMatch,C2).
 equivalent(C1,C2) :- rdf(C2,skos:exactMatch,C1).
 
+:- table obj_has_prefix/2.
 obj_has_prefix(C,P) :- obj(C),has_prefix(C,P).
 
+:- table has_prefix/2.
 has_prefix(C,P) :- atomic(C), rdf_global_id(P:_, C).
 has_prefix(C,P) :- atomic(C), \+ rdf_global_id(_:_, C), concat_atom([P,_],:,C).
 has_prefix(P:_,P).
@@ -883,6 +917,68 @@ unmatched_in(C, ExtPrefix) :-
         obj(C),  
         \+ ((equivalent(C,C2),
              has_prefix(C2, ExtPrefix))).
+
+:- table object_token/2.
+:- table object_token/3.
+object_token(Obj,T) :-
+        object_token(Obj,T,_).
+object_token(Obj,T,Prefix) :-
+        obj(Obj),
+        has_prefix(Obj,Prefix),
+        rdf(Obj,P1,Val),
+        pmap(_,P1),
+        literal_atom(Val,A),
+        tokenize_atom(A,Ts),
+        member(T,Ts).
+
+:- table token/1.
+token(T) :-
+        setof(T,O^object_token(O,T),Ts),
+        member(T,Ts).
+:- table prefix_token/2.
+prefix_token(P,T) :-
+        setof(T,O^object_token(O,T,P),Ts),
+        member(T,Ts).
+
+prefix_token_count(Prefix,T,Num) :-
+        aggregate(count,O,object_token(O,T,Prefix),Num).
+
+:- table inferred_stopword/1.
+inferred_stopword(T) :-
+        inferred_stopword(T,_).
+inferred_stopword(T,Prefix) :-
+        inferred_stopword(T,Prefix,_).
+inferred_stopword(T,Prefix,Prop) :-
+        inferred_stopword(T,Prefix,Prop,_).
+inferred_stopword(T,Prefix,Prop,Min) :-
+        (   var(Min)
+        ->  Min=0.75
+        ;   true),
+        aggregate(count,O,obj_has_prefix(O,Prefix),NumObjs),
+        debug(rdf_matcher,'Prefix: ~w Objs: ~w',[Prefix,NumObjs]),
+        prefix_token_count(Prefix,T,NumWithT),
+        Prop is NumWithT/NumObjs,
+        (   Prop > Min
+        ;   common_word(T)).
+
+
+common_word(the).
+             
+
+transfer_annotation_provenance :-
+        rdf(S,P,O,G),
+        rdf(Axiom,owl:annotatedSource,S),
+        rdf(Axiom,owl:annotatedTarget,O),
+        rdf(Axiom,owl:annotatedProperty,P),
+        rdf(Axiom,oio:hasDbXref,XL),
+        literal_atom(XL,X),
+        concat_atom([Prefix,Local],':',X),
+        used_prefix(Prefix),
+        rdf_global_id(Prefix:Local,X_URI),
+        rdf_assert(S,skos:exactMatch,X_URI,G),
+        debug(rdf_matcher,'Made skos triple ~w ->  ~w // from annotation ~w ~w',[S,X_URI,P,O]),
+        fail.
+transfer_annotation_provenance.
 
 
 remove_inexact_synonyms :-
@@ -1086,8 +1182,16 @@ is_camel_hump(H) :-
 foo__('0').
 
 :- table entity_category/2.
+
+%! entity_category(?E,?C) is nondet.
+%! entity_category(+E,?C) is semidet.
+%
+%  if there are multiple categories, |-concatenated
+%
+%  note this doesn't usually happen as we try and find the most relevant category
+%
 entity_category(E,C) :-
-        setof(C1,entity_category1(E,C1),Cs),
+        setof(C1,(obj(E),entity_category1(E,C1)),Cs),
         maplist(category_label,Cs,C2s),
         concat_atom(C2s,'|',C).
 
@@ -1101,27 +1205,30 @@ category_label(C,N) :-
         !.
 category_label(C,C).
 
-
-entity_category1(E,C) :-
-        rdf(E,oio:hasOBONamespace,C),
-        !.
 entity_category1(E,C) :-
         rdf(E,skos:inScheme,C),
         !.
 entity_category1(E,C) :-
+        % assumes OWL layering of RDF
         rdf(E,rdf:type,owl:'NamedIndividual'),
         rdf(E,rdf:type,T),
         entity_category1(T,C),
         !.
 entity_category1(E,C) :-
         rdfs_subclass_of(E,P),
-        parent_category(P,C),
+        parent_category(P,C,Priority),
         \+ ((rdfs_subclass_of(E,P1),
              rdfs_subclass_of(P1,P),
              P1\=P,
-             parent_category(P,_))),
+             parent_category(P,C2,Priority2),
+             Priority2 < Priority,
+             C2\=C)),
         !.
 entity_category1(E,C) :-
+        rdf(E,oio:hasOBONamespace,C),
+        !.
+entity_category1(E,C) :-
+        % C is a root class
         rdfs_subclass_of(E,C),
         rdf_is_iri(C),
         \+ ((rdf(C,rdfs:subClassOf,P),
@@ -1130,10 +1237,10 @@ entity_category1(E,C) :-
         !.
 entity_category1(_,thing) :- !.
 
-parent_category(E,C) :-
+parent_category(E,C,1) :-
         category_property(P),
         rdf(E,P,C).
-parent_category(E,C) :-
+parent_category(E,C,2) :-
         rdf(E,rdf:type,C),
         \+ rdf_global_id(owl:_,C),
         \+ rdf_global_id(skos:_,C),

@@ -14,7 +14,7 @@ check:
 install:
 clean:
 
-test:
+test: t-stopword t-term_regex
 	$(SWIPL) -l tests/tests.pl -g run_tests,halt
 
 bigtest:

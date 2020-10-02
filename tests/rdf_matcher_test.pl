@@ -72,7 +72,9 @@ test(load) :-
         assertion( categorize_match('http://example.org/y/bone','http://example.org/z/bone_tissue',one_to_many) ),
         assertion( categorize_match('http://example.org/z/bone_tissue','http://example.org/y/bone',many_to_one) ),
         assertion( categorize_match('http://example.org/x/bone_element','http://example.org/z/bone_element',many_to_many) ),
-        
+
+        assertion(tr_annot('http://example.org/x/tail_structure',_,tail,_,_,_)),
+        assertion( inter_pair_match('http://example.org/z/tail','http://example.org/x/tail_structure',_,_) ),        
         nl.
 
 test(cluster) :-
