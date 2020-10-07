@@ -53,6 +53,9 @@ docker-build:
 docker-run:
 	docker run --name rdf_matcher $(IM)
 
+test-docker-run:
+	docker run -v $$PWD/:/work -w /work --rm -ti $(IM) swipl -p library=prolog ./bin/rdfmatch -i tests/data/basic.ttl match
+
 docker-publish: docker-build
 	@docker push $(IM):$(VERSION) \
 	&& docker push $(IM):latest

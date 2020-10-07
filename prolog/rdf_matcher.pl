@@ -92,6 +92,8 @@
 :- rdf_register_prefix(skos, 'http://www.w3.org/2004/02/skos/core#').
 :- rdf_register_prefix(inca, 'https://w3id.org/inca/').
 :- rdf_register_prefix(schema, 'http://schema.org/').
+:- rdf_register_prefix(biopax3, 'http://www.biopax.org/release/biopax-level3.owl#').
+
 
 :- multifile user:weight/2.
 :- dynamic user:weight/2.
@@ -129,8 +131,10 @@ index_pairs(Path) :-
 
 pmap(label, rdfs:label).
 pmap(label, skos:prefLabel).
+pmap(label, biopax3:standardName).
 pmap(related, skos:altLabel).
 pmap(related, oio:hasRelatedSynonym).
+pmap(related, biopax3:name).
 pmap(exact, oio:hasExactSynonym).
 pmap(broad, oio:hasBroadSynonym).
 pmap(narrow, oio:hasNarrowSynonym).
@@ -173,7 +177,7 @@ opt_literal_atom(A,A) :- atomic(A).
 
 :- table obj/1.
 obj(Obj) :-
-        setof(Obj, rdf(Obj,_ , _), Objs),
+        setof(Obj, X^Y^rdf(Obj, X , Y), Objs),
         member(Obj,Objs),
         rdf_is_iri(Obj),
         has_prefix(Obj,Prefix),
@@ -228,20 +232,22 @@ mutate(stem,_,V,V2) :-
 mutate(downcase,_,V,V2) :-
         downcase_atom(V,V2).
 
+%TODO: this fails in a random fashion
+%:- table term_replacement/2.
 term_replacement(Pattern,Replacement) :-
         rdf(S,inca:pattern,PatternLit),
         rdf(S,inca:replacement,ReplacementLit),
         literal_atom(PatternLit,Pattern),
         literal_atom(ReplacementLit,Replacement).
 term_replacement(Pattern,'') :-
-        inferred_stopword(Pattern).
+        inferred_stopword(Pattern),
+        atom_chars(Pattern,Cs),
+        forall(member(C,Cs),
+               is_alpha(C)).
 term_replacement(eous,eus). % TODO config
 term_replacement('  *',' ').
 term_replacement('^ +','').
 term_replacement(' +$','').
-
-term_replacements(Pairs) :-
-        setof(P-R,term_replacement(P,R),Pairs).
 
 replace_termsyns(T,S) :-
         nb_setval(term,T),
@@ -954,6 +960,7 @@ inferred_stopword(T,Prefix,Prop,Min) :-
         (   var(Min)
         ->  Min=0.75
         ;   true),
+        debug(rdf_matcher,'Counting objs for: ~w',[Prefix]),
         aggregate(count,O,obj_has_prefix(O,Prefix),NumObjs),
         debug(rdf_matcher,'Prefix: ~w Objs: ~w',[Prefix,NumObjs]),
         prefix_token_count(Prefix,T,NumWithT),
@@ -964,21 +971,16 @@ inferred_stopword(T,Prefix,Prop,Min) :-
 
 common_word(the).
              
-
+% todo - figure out why this is so slow
 transfer_annotation_provenance :-
-        rdf(S,P,O,G),
-        rdf(Axiom,owl:annotatedSource,S),
-        rdf(Axiom,owl:annotatedTarget,O),
-        rdf(Axiom,owl:annotatedProperty,P),
-        rdf(Axiom,oio:hasDbXref,XL),
-        literal_atom(XL,X),
-        concat_atom([Prefix,Local],':',X),
-        used_prefix(Prefix),
-        rdf_global_id(Prefix:Local,X_URI),
-        rdf_assert(S,skos:exactMatch,X_URI,G),
-        debug(rdf_matcher,'Made skos triple ~w ->  ~w // from annotation ~w ~w',[S,X_URI,P,O]),
-        fail.
-transfer_annotation_provenance.
+        findall(S-XL,triple_axiom_annotation(S,_P,_O,oio:hasDbXref,XL),Pairs),
+        forall((member(S-XL,Pairs),
+                literal_atom(XL,X),
+                concat_atom([Prefix,Local],':',X),
+                used_prefix(Prefix),
+                rdf_global_id(Prefix:Local,X_URI)),
+               (   rdf_assert(S,skos:exactMatch,X_URI),
+                   debug(rdf_matcher,'Made skos triple ~w ->  ~w // from annotation',[S,X_URI]))).
 
 
 remove_inexact_synonyms :-

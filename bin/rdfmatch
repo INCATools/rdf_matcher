@@ -23,6 +23,7 @@
 :- use_module(library(semweb/rdf11)).
 :- use_module(library(semweb/rdfs)).
 :- use_module(library(semweb/turtle)).
+:- use_module(library(semweb/rdf_ntriples)).
 
 :- rdf_register_prefix(external_resource, 'http://example.org/external_resource/').
 
@@ -426,7 +427,7 @@ run([merge|_], Opts) :-
         show_turtle(G).
 
 run([query,QA|_], Opts) :-
-        atom_to_term(QA,Query,Bindings),
+        atom_to_term(QA,Query,_Bindings),
         forall(Query,
                write_result(Query,Opts)).
 
@@ -472,7 +473,7 @@ write_all_results(G,Opts) :-
                 G,
                 \+filter_object(Obj,Opts)),
                write_result_wrap(G,Opts)),
-        (   \+ member(write_unmatched(true),Opts)
+        (   member(include_unmatched(true),Opts)
         ->  write_unmatchable(Opts)
         ;   true),
         (   option(rdf_graph(RdfFile),Opts),
@@ -773,7 +774,8 @@ assert_class_from_row(Row) :-
         rdf_assert(URI,rdf:type,owl:'Class').
 
 add_prefix(X) :-
-        concat_atom([Pre,Base],'=',X),
+        re_matchsub('(\\w+)=(.*)'/a, X, _{0:_,1:Pre,2:Base}, []),
+        %concat_atom([Pre,Base],'=',X),
         debug(rdf_matcher,'Registering: ~w = ~w',[Pre,Base]),
         rdf_register_prefix(Pre,Base).
 
