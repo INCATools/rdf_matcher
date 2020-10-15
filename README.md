@@ -62,3 +62,4 @@ Use `./run.sh` instead of `rdfmatch`. E.g.
 
 `./run.sh  -p x  -f tsv -i tests/data/basic.ttl match`
 
+Note that files must be in current directory or below, [run.sh](run.sh) automaps the current dir to the container.

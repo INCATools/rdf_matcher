@@ -64,6 +64,8 @@
            unmatched/1,
            unmatched_in/2,
 
+           remove_non_english_literals/0,
+           remove_language_literals_except/1,
            remove_inexact_synonyms/0,
            transfer_annotation_provenance/0,
            inferred_stopword/1,
@@ -90,6 +92,7 @@
 :- setting(ontology, atom,'','').
 
 :- rdf_register_prefix(skos, 'http://www.w3.org/2004/02/skos/core#').
+:- rdf_register_prefix(skosxl, 'http://www.w3.org/2008/05/skos-xl#').
 :- rdf_register_prefix(inca, 'https://w3id.org/inca/').
 :- rdf_register_prefix(schema, 'http://schema.org/').
 :- rdf_register_prefix(biopax3, 'http://www.biopax.org/release/biopax-level3.owl#').
@@ -129,8 +132,8 @@ index_pairs(Path) :-
 
 :- rdf_meta pmap(-,r).
 
-pmap(label, rdfs:label).
 pmap(label, skos:prefLabel).
+pmap(label, rdfs:label).
 pmap(label, biopax3:standardName).
 pmap(related, skos:altLabel).
 pmap(related, oio:hasRelatedSynonym).
@@ -143,6 +146,8 @@ pmap(related, skos:closeMatch).
 pmap(exact, skos:exactMatch).
 pmap(broad, skos:broadMatch).
 pmap(narrow, skos:narrowMatch).
+
+pmap(distinct, skos:relatedMatch).
 
 pmap(xref, oio:hasDbXref).
 
@@ -181,11 +186,16 @@ obj(Obj) :-
         member(Obj,Objs),
         rdf_is_iri(Obj),
         has_prefix(Obj,Prefix),
-        \+ is_builtin_prefix(Prefix).
+        \+ is_builtin_prefix(Prefix),
+        \+ skos_xl_instance(Obj).
+
 
 is_builtin_prefix(rdfs).
 is_builtin_prefix(http).
 
+skos_xl_instance(Obj) :-
+        rdf(Obj,rdf:type,C),
+        rdf_global_id(skosxl:_,C).
 
 %obj(Obj) :-
 %        setof(Obj, rdf(Obj,rdf:type,owl:'Class'), Objs),
@@ -958,12 +968,17 @@ inferred_stopword(T,Prefix,Prop) :-
         inferred_stopword(T,Prefix,Prop,_).
 inferred_stopword(T,Prefix,Prop,Min) :-
         (   var(Min)
-        ->  Min=0.75
-        ;   true),
+        ->  Min = 0.75
+        ;   Min =< 1.0),
+        aggregate(count,O,obj(O),NumObjsTotal),
+        debug(rdf_matcher,'Total objs: ~w',[NumObjsTotal]),
+        % arbitrary... vocabs like agrovoc are too big for tabling
+        NumObjsTotal < 70000,
         debug(rdf_matcher,'Counting objs for: ~w',[Prefix]),
         aggregate(count,O,obj_has_prefix(O,Prefix),NumObjs),
         debug(rdf_matcher,'Prefix: ~w Objs: ~w',[Prefix,NumObjs]),
         prefix_token_count(Prefix,T,NumWithT),
+        debug(stopword,'  T: ~w N: ~w',[T,NumWithT]),
         Prop is NumWithT/NumObjs,
         (   Prop > Min
         ;   common_word(T)).
@@ -994,10 +1009,23 @@ remove_inexact_synonyms :-
                (   debug(rdf_matcher,'Removing: ~w ~w ~w',[S,P,O]),
                    rdf_retractall(S,P,O))).
 
+remove_non_english_literals :-
+        remove_language_literals_except(en).
+remove_language_literals_except(PreserveLang) :-
+        findall(rdf(S,P,Lit),
+                (   rdf(S,P,Lit),
+                    Lit= _ @ Lang,
+                    Lang\=PreserveLang),
+                Ts),
+        forall(member(rdf(S,P,O),Ts),
+               (   debug(rdf_matcher_debug,'Removing: ~w ~w ~w',[S,P,O]),
+                   rdf_retractall(S,P,O))).
+
 mpred(skos:exactMatch).
 mpred(skos:closeMatch).
 mpred(owl:equivalentClass).
 mpred(owl:equivalentProperty).
+mpred(owl:disjointWith).
 asserted_match(X,Y) :- mpred(P),rdf(X,P,Y).
 asserted_match(X,Y) :- mpred(P),rdf(Y,P,X).
 
@@ -1194,8 +1222,10 @@ foo__('0').
 %
 entity_category(E,C) :-
         setof(C1,(obj(E),entity_category1(E,C1)),Cs),
+        !,
         maplist(category_label,Cs,C2s),
         concat_atom(C2s,'|',C).
+entity_category(_,'').
 
 category_label(C,N) :-
         atom(C),
@@ -1207,15 +1237,31 @@ category_label(C,N) :-
         !.
 category_label(C,C).
 
+has_skos_top_concept(E,C) :-
+        rdf_reachable(E,skos:broader,C1),
+        rdf(C1,skos:topConceptOf,_),
+        rdf(C1,skos:prefLabel,C).
+
+
+entity_category1(E,C) :-
+        setof(C1,has_skos_top_concept(E,C1),Cs),
+        !,
+        member(C,Cs).
 entity_category1(E,C) :-
         rdf(E,skos:inScheme,C),
         !.
 entity_category1(E,C) :-
         % assumes OWL layering of RDF
         rdf(E,rdf:type,owl:'NamedIndividual'),
-        rdf(E,rdf:type,T),
-        entity_category1(T,C),
+        rdf(E,rdf:type,C),
+        \+ rdf_global_id(owl:_,C),
         !.
+%entity_category1(E,C) :-
+%        % assumes OWL layering of RDF
+%        rdf(E,rdf:type,owl:'NamedIndividual'),
+%        rdf(E,rdf:type,T),
+%        entity_category1(T,C),
+%        !.
 entity_category1(E,C) :-
         rdfs_subclass_of(E,P),
         parent_category(P,C,Priority),
@@ -1233,6 +1279,7 @@ entity_category1(E,C) :-
         % C is a root class
         rdfs_subclass_of(E,C),
         rdf_is_iri(C),
+        \+ rdf_global_id(owl:_,C),
         \+ ((rdf(C,rdfs:subClassOf,P),
              \+ rdf_global_id('http://schema.org/Thing',P),
              \+ rdf_global_id(owl:'Thing',P))),

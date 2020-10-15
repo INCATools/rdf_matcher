@@ -565,9 +565,16 @@ write_result_wrap(G,Opts) :-
         write_result(G,Opts).
 
 obj_label(X,N) :-
+        rdf_matcher:pmap(label,P),
+        rdf(X,P,N),
+        \+ non_en(N),
+        !.
+obj_label(X,N) :-
         rdf(X,rdfs:label,N),
         !.
 obj_label(_,'') :- !.
+
+non_en(_ @ Lang) :- Lang\=en.
 
 infer_confidence(Vals, Conf) :-
         findall(W,((clause(weight(W,Conditions),Body),
