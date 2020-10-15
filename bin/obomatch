@@ -1,0 +1,3 @@
+#!/bin/sh
+
+rdfmatch -X /tmp/rdfmatch_cache/ -A ~/repos/onto-mirror/void.ttl  -i obo_prefixes "$@" match
