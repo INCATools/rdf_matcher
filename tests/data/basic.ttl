@@ -232,3 +232,11 @@ a:bone_of_hand a owl:Class ; category: anatomy: ;
 a:bone_of_foot a owl:Class ; category: anatomy: ;
    rdfs:label "bone of foot" ;
    rdfs:subClassOf a:organ .
+
+x:bone_of_head a owl:Class ; category: anatomy: ;
+   rdfs:label "BONE, HEAD" ;
+   rdfs:subClassOf a:organ .
+
+y:head_bone a owl:Class ; category: anatomy: ;
+   rdfs:label "head bone" ;
+   rdfs:subClassOf a:organ .

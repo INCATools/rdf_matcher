@@ -55,6 +55,13 @@ test(load) :-
         % intra-ontology matches: include with pair_cmatch, exclude with inter_pair_cmatch
         assertion( pair_cmatch(x:bone_tissue, y:bone, _, _)), 
 
+        % match using tokensets
+        rdf_global_id(x:bone_of_head, HeadBone),
+
+        assertion(tr_annot(HeadBone,_,bonehead,_,tokenset,_)),
+        
+        assertion( inter_pair_cmatch(x:bone_of_head, y:head_bone, _, _) ),
+        
         % 
         assertion( inter_pair_cmatch(x:organ, y:organ, _, info(_,_,stem)) ),
 

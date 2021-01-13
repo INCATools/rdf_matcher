@@ -369,8 +369,8 @@ run([exact|_Args], Opts) :-
 
 run([new_match|_Args], Opts) :-
         %G = new_inter_pair_match(X,_,_,_Info),
-        G = new_pair_match(X,_,_,_Info),
-        write_all_results_old(X,G,Opts).        
+        G = new_pair_match(_,_,_,_Info),
+        write_all_results(G,Opts).        
 
 
 run([tri_match|_Args], Opts) :-

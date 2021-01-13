@@ -237,6 +237,8 @@ tr_annot(Obj,P,V,T,null,V) :-
         basic_annot(Obj,P,V,T).
 
 
+mutate(tokenset,_,V,V2) :-
+        tokenset_atom(V,V2).
 mutate(stem,_,V,V2) :-
         custom_porter_stem(V,V2).
 mutate(downcase,_,V,V2) :-
@@ -277,6 +279,26 @@ custom_porter_stem(T,S) :-
         is_ascii(T),
         replace_termsyns(T,T2),
         porter_stem(T2,S).
+
+tokenset_atom(T,S) :-
+        is_ascii(T),
+        downcase_atom(T,T1),
+        replace_termsyns(T1,T2),
+        tokenize_atom(T2,As),
+        sort(As,As2),
+        include(is_true_token,As2,As3),
+        concat_atom(As3,S).
+
+is_true_token(A):-
+        sub_atom(A,0,1,_,Letter),
+        is_alphanumeric(Letter).
+
+is_alphanumeric(X) :-  X @>= 'a',  X @=< 'z',!.
+is_alphanumeric(X) :-  X @>= 'A',  X @=< 'Z',!.
+is_alphanumeric(X) :-  X @>= '0',  X @=< '9'.
+
+
+        
 
 % porter_stem only accepts ISO-Latin 1. To avoid conversion
 % (not sure how) we simply do not attempt to stem anything that isn't on
