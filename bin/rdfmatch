@@ -654,7 +654,7 @@ normalize_val(X^^_,X) :- !.
 normalize_val(X@_,X) :- !.
 normalize_val(X,Y) :- ensure_curie(X,Y),!.
 
-:- dynamic is_header_emitted.
+:- dynamic is_header_emitted/0.
 write_vals(Vals,Opts) :-
         \+ is_header_emitted,
         !,
