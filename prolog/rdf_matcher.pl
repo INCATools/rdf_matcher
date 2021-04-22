@@ -611,7 +611,8 @@ term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
         \+ \+ member(match(_,_,Pred,_),Matches),
         findall(W,(member(M,Matches),smatch_weight(M,Pred,W)),Weights),
         sum_list(Weights,Score),
-        Score > 0.
+        myopt(min_score(MinScore),Opts,0),
+        Score > MinScore.
 
 
 smatch_weight(match(_,_,P,W),P,W) :- !.
@@ -667,13 +668,15 @@ token_subsumer_nondir(E1,E2,Score,superClassOf) :-
         Score is ((MLen / Len) - 0.5) + Extra.
 token_subsumer_nondir(E1,E2,Score,equivalentTo) :-
         isub(E1,E2,true,Score),
+        Score > 0.5,
         debug(subsumer,'xxxxxxxxxxISUB ~q <-> ~q = ~w',[E1,E2,Score]).
 token_subsumer_nondir(E1,E2,2,equivalentTo) :-
         cls_lexform(C,E1),
         cls_lexform(C,E2).
 token_subsumer_nondir(E1,E2,Score,Rel) :-
         cls_lexform(C1,E1),
-        cls_lexform(C2,E2).
+        cls_lexform(C2,E2),
+        node_subsumer_nondir(C1,C2,Score,Rel).
 
 node_subsumer_nondir(C1,C2,1.8,subClassOf) :-
         rdf(C1,rdfs:subClassOf,C2).
