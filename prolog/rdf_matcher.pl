@@ -568,8 +568,10 @@ myopt(Opt,Opts,Default) :-
         ;   true).
 
 cls_lexform(C,N) :-
-        tr_annot(C,A,N,_,_,_),
-        debug(subsumer,'trann: ~q ~q ~q',[C,A,N]),
+        cls_lexform(C,N,_).
+cls_lexform(C,N,Mut) :-
+        tr_annot(C,A,N,_,Mut,_),
+        %debug(subsumer,'trann: ~q ~q ~q',[C,A,N]),
         A\=uri,
         A\=xref,
         A\=id.
@@ -583,8 +585,8 @@ inter_pair_subsumer_match(C1,C2,Pred,Score,N1,N2,Opts) :-
 class_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
         class_pair_subsumer_match(C1,C2,Pred,Score,_,_,Opts).
 class_pair_subsumer_match(C1,C2,Pred,Score,N1,N2,Opts) :-
-        cls_lexform(C1,N1),
-        cls_lexform(C2,N2),
+        cls_lexform(C1,N1,downcase), % TODO - check
+        cls_lexform(C2,N2,downcase),
         debug(subsumer,'CP: ~w <-> ~w  // "~w" <-> "~w"',[C1,C2,N1,N2]),
         term_pair_subsumer_match(N1,N2,Pred,Score,Opts).
 
@@ -616,19 +618,23 @@ term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
         append(Matches1,Matches2,Matches),
         debug(subsumer,'  Matches :: ~q',[Matches]),
         member(Pred,[subClassOf,superClassOf,equivalentTo]),
-        \+ \+ member(match(_,_,Pred,_),Matches),
+        %\+ \+ member(match(_,_,Pred,_),Matches),
         findall(W,(member(M,Matches),smatch_weight(M,Pred,W)),Weights),
-        debug(subsumer,'  Weights :: ~q',[Weights]),
+        debug(subsumer,'  Weights :: ~q in ~w vs ~w',[Weights,N1,N2]),
         sum_list(Weights,Score),
         myopt(min_score(MinScore),Opts,0),
         Score > MinScore.
 
 
-smatch_weight(match(_,_,P,W),P,W) :- !.
-smatch_weight(match(_,_,_,W),equivalentTo,W2) :- W2 is W/2, !.
-smatch_weight(match(_,_,equivalentTo,W),_,W) :- !.
-smatch_weight(match(_,_,_,_),_,-1).
-smatch_weight(nomatch(_),_,-2).
+smatch_weight(match(_,_,equivalentTo,W),equivalentTo,W) :- !.
+smatch_weight(match(_,_,_,W),equivalentTo,W2) :- W2 is -W/2, !.
+smatch_weight(match(_,_,P,W),P,W) :- !.  % matching sub or super
+smatch_weight(match(_,_,equivalentTo,W),_,W2) :- W2 is W*0.9, !.
+smatch_weight(match(_,_,_,W),_,NegW) :- NegW is -W, !.
+smatch_weight(nomatch_left(_),subClassOf,0) :- !.
+smatch_weight(nomatch_left(X),_,W) :- nomatch_weight(X,W),!.
+smatch_weight(nomatch_right(_),superClassOf,0) :- !.
+smatch_weight(nomatch_right(X),_,W) :- nomatch_weight(X,W),!.
 
 identical_match_weight(M,W) :-
         identical_match_weight1(M,W),
@@ -640,6 +646,10 @@ identical_match_weight1(X,W) :-
         atom_length(X,Len),
         W is log(Len + 1).
 
+nomatch_weight(X,W) :-
+        atom_length(X,Len),
+        W is -log(Len + 1).
+
 
 tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U) :-
         ord_intersection(Set1,Set2,Ixn),
@@ -647,13 +657,13 @@ tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U) :-
         ord_subtract(Set2,Ixn,Set2U).
 tokens_subsumers([],Set2,Matches) :-
         !,
-        findall(nomatch(X),member(X,Set2),Matches).
+        findall(nomatch_right(X),member(X,Set2),Matches).
 tokens_subsumers(Set1,Set2,[Match|Matches]) :-
         select(E1,Set1,Set1R),
         best_subsumer(E1,Set2,Set2R,Match),
         !,
         tokens_subsumers(Set1R,Set2R,Matches).
-tokens_subsumers(Set1,Set2,[nomatch(E1)|Matches]) :-
+tokens_subsumers(Set1,Set2,[nomatch_left(E1)|Matches]) :-
         select(E1,Set1,Set1R),
         tokens_subsumers(Set1R,Set2,Matches).
 
