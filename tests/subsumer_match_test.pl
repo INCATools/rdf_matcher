@@ -4,6 +4,7 @@
 :- use_module(library(semweb/rdf_turtle)).
 :- use_module(library(semweb/rdf_turtle_write)).
 
+:- rdf_register_prefix(a,'http://example.org/a/').
 :- rdf_register_prefix(x,'http://example.org/x/').
 :- rdf_register_prefix(y,'http://example.org/y/').
 :- rdf_register_prefix(z,'http://example.org/z/').
@@ -82,6 +83,12 @@ test(ont) :-
 test(cp) :-
         show_cp(x:bone_element,y:bone,equivalentTo,[3,4]),
         show_cp(x:heart,y:heart,equivalentTo,[2,4]),
+        show_cp(a:bone_of_foot,x:foot,equivalentTo,[-8,0]),
+        G1=basic_annot( 'http://example.org/a/bone_of_foot',_,_,_),
+        forall(G1,writeln(G1)),               
+        G=tr_annot( 'http://example.org/a/bone_of_foot',_,_,_,_,_),
+        forall(G,writeln(G)),               
+        assertion( \+ tr_annot( 'http://example.org/a/bone_of_foot',_,foot,_,_,_)),
         %show_cp(x:bone_of_head,z:hindlimb,equivalentTo,[0,0]),
         true.
 

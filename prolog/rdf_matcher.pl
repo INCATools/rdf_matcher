@@ -241,10 +241,10 @@ tr_annot(Obj,P,V,T,null,V) :-
         basic_annot(Obj,P,V,T).
 
 
-mutate(tokenset,_,V,V2) :-
+xmutate(tokenset,_,V,V2) :-
         tokenset_atom(V,V2).
 mutate(stem,_,V,V2) :-
-        custom_porter_stem(V,V2).
+        porter_stem(V,V2).
 mutate(downcase,_,V,V2) :-
         downcase_atom(V,V2).
 
@@ -567,7 +567,9 @@ myopt(Opt,Opts,Default) :-
 
 cls_lexform(C,N) :-
         tr_annot(C,A,N,_,_,_),
+        debug(subsumer,'trann: ~q ~q ~q',[C,A,N]),
         A\=uri,
+        A\=xref,
         A\=id.
 inter_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
         class_pair_subsumer_match(C1,C2,Pred,Score,Opts),
