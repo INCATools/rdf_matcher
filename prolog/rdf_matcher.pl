@@ -610,6 +610,7 @@ term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
         member(Pred,[subClassOf,superClassOf,equivalentTo]),
         \+ \+ member(match(_,_,Pred,_),Matches),
         findall(W,(member(M,Matches),smatch_weight(M,Pred,W)),Weights),
+        debug(subsumer,'  Weights :: ~q',[Weights]),
         sum_list(Weights,Score),
         myopt(min_score(MinScore),Opts,0),
         Score > MinScore.

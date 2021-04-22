@@ -82,7 +82,7 @@ test(ont) :-
 test(cp) :-
         show_cp(x:bone_element,y:bone,equivalentTo,[3,4]),
         show_cp(x:heart,y:heart,equivalentTo,[2,4]),
-        show_cp(x:bone_of_head,z:hindlimb,equivalentTo,[0,0]),
+        %show_cp(x:bone_of_head,z:hindlimb,equivalentTo,[0,0]),
         true.
 
         
