@@ -241,10 +241,10 @@ tr_annot(Obj,P,V,T,null,V) :-
         basic_annot(Obj,P,V,T).
 
 
-xmutate(tokenset,_,V,V2) :-
+mutate(tokenset,_,V,V2) :-
         tokenset_atom(V,V2).
 mutate(stem,_,V,V2) :-
-        porter_stem(V,V2).
+        custom_porter_stem(V,V2).
 mutate(downcase,_,V,V2) :-
         downcase_atom(V,V2).
 
@@ -255,7 +255,7 @@ term_replacement(Pattern,Replacement) :-
         rdf(S,inca:replacement,ReplacementLit),
         literal_atom(PatternLit,Pattern),
         literal_atom(ReplacementLit,Replacement).
-term_replacement(Pattern,'') :-
+xxxterm_replacement(Pattern,'') :-
         inferred_stopword(Pattern),
         atom_chars(Pattern,Cs),
         forall(member(C,Cs),
