@@ -30,7 +30,9 @@
            bm_resnik/4,
 
            inter_pair_subsumer_match/5,
+           inter_pair_subsumer_match/7,
            class_pair_subsumer_match/5,           
+           class_pair_subsumer_match/7,           
            term_pair_subsumer_match/5,           
            pair_match/4,
            pair_cmatch/4,
@@ -255,11 +257,11 @@ term_replacement(Pattern,Replacement) :-
         rdf(S,inca:replacement,ReplacementLit),
         literal_atom(PatternLit,Pattern),
         literal_atom(ReplacementLit,Replacement).
-xxxterm_replacement(Pattern,'') :-
-        inferred_stopword(Pattern),
-        atom_chars(Pattern,Cs),
-        forall(member(C,Cs),
-               is_alpha(C)).
+%term_replacement(Pattern,'') :-
+%        inferred_stopword(Pattern),
+%        atom_chars(Pattern,Cs),
+%        forall(member(C,Cs),
+%               is_alpha(C)).
 term_replacement(eous,eus). % TODO config
 term_replacement('  *',' ').
 term_replacement('^ +','').
@@ -572,14 +574,18 @@ cls_lexform(C,N) :-
         A\=xref,
         A\=id.
 inter_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
-        class_pair_subsumer_match(C1,C2,Pred,Score,Opts),
+        inter_pair_subsumer_match(C1,C2,Pred,Score,_,_,Opts).
+inter_pair_subsumer_match(C1,C2,Pred,Score,N1,N2,Opts) :-
+        class_pair_subsumer_match(C1,C2,Pred,Score,N1,N2,Opts),
         has_prefix(C1,Pfx1),
         has_prefix(C2,Pfx2),
         Pfx1 \= Pfx2.
 class_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
+        class_pair_subsumer_match(C1,C2,Pred,Score,_,_,Opts).
+class_pair_subsumer_match(C1,C2,Pred,Score,N1,N2,Opts) :-
         cls_lexform(C1,N1),
         cls_lexform(C2,N2),
-        debug(subsumer,'CP: ~w <-> ~w ( ~w ~w) // "~w" <-> "~w"',[C1,C2,A1,A2,N1,N2]),
+        debug(subsumer,'CP: ~w <-> ~w  // "~w" <-> "~w"',[C1,C2,N1,N2]),
         term_pair_subsumer_match(N1,N2,Pred,Score,Opts).
 
 :- table stopword/1.
@@ -620,7 +626,7 @@ term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
 
 smatch_weight(match(_,_,P,W),P,W) :- !.
 smatch_weight(match(_,_,_,W),equivalentTo,W2) :- W2 is W/2, !.
-smatch_weight(match(_,_,equivalentTo,W),P,W) :- !.
+smatch_weight(match(_,_,equivalentTo,W),_,W) :- !.
 smatch_weight(match(_,_,_,_),_,-1).
 smatch_weight(nomatch(_),_,-2).
 
@@ -657,7 +663,7 @@ best_subsumer(E1,Set2,Set2R,Match) :-
         match(_,E2,_,_) = Match,
         select(E2,Set2,Set2R).
 
-:- table token_subsumer/4.
+%:- table token_subsumer/4.
 token_subsumer(E1,E2,S,match(E1,E2,Rel,S)) :-
         token_subsumer_nondir(E1,E2,S,Rel).
 token_subsumer(E1,E2,S,match(E1,E2,IRel,S)) :-

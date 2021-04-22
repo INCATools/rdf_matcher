@@ -359,24 +359,27 @@ run([match|_Args], Opts) :-
         write_all_results(G,Opts).
 
 run([submatch|_Args], Opts) :-
-        forall(inter_pair_subsumer_match(C1,C2,Pred,Score,[min_ixn(0)]),
+        forall(inter_pair_subsumer_match(C1,C2,Pred,W,N1,N2,[min_ixn(1)]),
                
                (   obj_label(C1,C1N),
                    obj_label(C2,C2N),
                    has_prefix(C1,C1Src),
                    has_prefix(C2,C2Src),
-
+                   pred2skos(Pred,SPred),
+                   inv_logit(W,Conf),
                    Vals=[
                          subject_id=C1,
                          subject_label=C1N,
-                         predicate_id=Pred,
+                         predicate_id=SPred,
                          object_id=C2,
                          object_label=C2N,
                          match_type='Lexical',
+                         subject_match_field=N1,
+                         object_match_field=N2,
                          subject_source=C1Src,
                          object_source=C2Src,
                          mapping_tool=rdf_matcher,
-                         confidence=Score,
+                         confidence=Conf,
                          comment='.'
                         ],
                    write_vals(Vals,Opts))).
@@ -481,6 +484,13 @@ write_facts(G) :-
         write_facts(G,G).
 write_facts(T,G) :-
         forall(G, format('~q.~n',[T])).
+
+pred2skos(equivalentTo,'skos:exactMatch').
+pred2skos(superClassOf,'skos:narrowMatch').
+pred2skos(subClassOf,'skos:broadMatch').
+
+inv_logit(W,Pr) :-
+    Pr is 1/(1+2**(-W)).
 
 
 fix_equiv_pred(P,owl:equivalentProperties) :- rdf_global_id(owl:'ObjectProperty',P).
