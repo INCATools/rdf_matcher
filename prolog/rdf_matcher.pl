@@ -28,7 +28,10 @@
            class_prop_bm/4,
            bm_tokens/2,
            bm_resnik/4,
-           
+
+           inter_pair_subsumer_match/5,
+           class_pair_subsumer_match/5,           
+           term_pair_subsumer_match/5,           
            pair_match/4,
            pair_cmatch/4,
            intra_pair_match/4,
@@ -81,6 +84,7 @@
            ]).
 
 :- use_module(library(porter_stem)).
+:- use_module(library(isub)).
 :- use_module(library(index_util)).
 %:- use_module(library(tabling)).
 :- use_module(library(semweb/rdf11)).
@@ -554,6 +558,145 @@ combine_mutfunc(X,X,X) :- !.
 combine_mutfunc(null,downcase,null) :- !.
 combine_mutfunc(downcase,null,null) :- !.
 
+myopt(Opt,Opts,Default) :-
+        Opt =.. [_,A],
+        option(Opt,Opts,Default),
+        (   var(A)
+        ->  A=Default
+        ;   true).
+
+cls_lexform(C,N) :-
+        tr_annot(C,A,N,_,_,_),
+        A\=uri,
+        A\=id.
+inter_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
+        class_pair_subsumer_match(C1,C2,Pred,Score,Opts),
+        has_prefix(C1,Pfx1),
+        has_prefix(C2,Pfx2),
+        Pfx1 \= Pfx2.
+class_pair_subsumer_match(C1,C2,Pred,Score,Opts) :-
+        cls_lexform(C1,N1),
+        cls_lexform(C2,N2),
+        debug(subsumer,'CP: ~w <-> ~w ( ~w ~w) // "~w" <-> "~w"',[C1,C2,A1,A2,N1,N2]),
+        term_pair_subsumer_match(N1,N2,Pred,Score,Opts).
+
+:- table stopword/1.
+stopword('') :- !.
+stopword(W) :- rdf(_,inca:stopword,Lit),
+        literal_atom(Lit,W).
+
+:- table mytok/2.
+mytok(N,Toks3) :-
+        concat_atom(Toks,' ',N),
+        maplist(downcase_atom,Toks,Toks2),
+        findall(T,(member(T,Toks2),
+                   \+stopword(T)),
+                Toks3).
+term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
+        mytok(N1,Toks1),
+        mytok(N2,Toks2),
+        sort(Toks1,Set1),
+        sort(Toks2,Set2),
+        tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U),
+        length(Ixn,NumIxn),
+        debug(subsumer,'~q <-> ~q :: Ixn=~q',[Set1,Set2,Ixn]),
+        myopt(min_ixn(MinIxn),Opts,0),
+        NumIxn >= MinIxn,
+        findall(match(X,X,equivalentTo,W),(member(X,Ixn),identical_match_weight(X,W)),Matches1),
+        debug(subsumer,'  Matches1 :: ~q',[Matches1]),
+        tokens_subsumers(Set1U,Set2U,Matches2),
+        append(Matches1,Matches2,Matches),
+        debug(subsumer,'  Matches :: ~q',[Matches]),
+        member(Pred,[subClassOf,superClassOf,equivalentTo]),
+        \+ \+ member(match(_,_,Pred,_),Matches),
+        findall(W,(member(M,Matches),smatch_weight(M,Pred,W)),Weights),
+        sum_list(Weights,Score),
+        Score > 0.
+
+
+smatch_weight(match(_,_,P,W),P,W) :- !.
+smatch_weight(match(_,_,_,W),equivalentTo,W2) :- W2 is W/2, !.
+smatch_weight(match(_,_,equivalentTo,W),P,W) :- !.
+smatch_weight(match(_,_,_,_),_,-1).
+smatch_weight(nomatch(_),_,-2).
+
+identical_match_weight(M,W) :-
+        identical_match_weight1(M,W),
+        !.
+identical_match_weight1(a,0).
+identical_match_weight1(to,0).
+identical_match_weight1(the,0).
+identical_match_weight1(X,W) :-
+        atom_length(X,Len),
+        W is log(Len + 1).
+
+
+tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U) :-
+        ord_intersection(Set1,Set2,Ixn),
+        ord_subtract(Set1,Ixn,Set1U),
+        ord_subtract(Set2,Ixn,Set2U).
+tokens_subsumers([],Set2,Matches) :-
+        !,
+        findall(nomatch(X),member(X,Set2),Matches).
+tokens_subsumers(Set1,Set2,[Match|Matches]) :-
+        select(E1,Set1,Set1R),
+        best_subsumer(E1,Set2,Set2R,Match),
+        !,
+        tokens_subsumers(Set1R,Set2R,Matches).
+tokens_subsumers(Set1,Set2,[nomatch(E1)|Matches]) :-
+        select(E1,Set1,Set1R),
+        tokens_subsumers(Set1R,Set2,Matches).
+
+best_subsumer(E1,Set2,Set2R,Match) :-
+        findall(Score-Match,(member(E2,Set2),token_subsumer(E1,E2,Score,Match)),Matches),
+        sort_best(Matches,_-Match),
+        match(_,E2,_,_) = Match,
+        select(E2,Set2,Set2R).
+
+:- table token_subsumer/4.
+token_subsumer(E1,E2,S,match(E1,E2,Rel,S)) :-
+        token_subsumer_nondir(E1,E2,S,Rel).
+token_subsumer(E1,E2,S,match(E1,E2,IRel,S)) :-
+        token_subsumer_nondir(E2,E1,S,Rel),
+        invert(Rel,IRel).
+
+token_subsumer_nondir(E1,E2,Score,superClassOf) :-
+        sub_atom(E2,_,MLen,_,E1),
+        atom_length(E2,Len),
+        Extra is log(MLen),  % longer matches better
+        Score is ((MLen / Len) - 0.5) + Extra.
+token_subsumer_nondir(E1,E2,Score,equivalentTo) :-
+        isub(E1,E2,true,Score),
+        debug(subsumer,'xxxxxxxxxxISUB ~q <-> ~q = ~w',[E1,E2,Score]).
+token_subsumer_nondir(E1,E2,2,equivalentTo) :-
+        cls_lexform(C,E1),
+        cls_lexform(C,E2).
+token_subsumer_nondir(E1,E2,Score,Rel) :-
+        cls_lexform(C1,E1),
+        cls_lexform(C2,E2).
+
+node_subsumer_nondir(C1,C2,1.8,subClassOf) :-
+        rdf(C1,rdfs:subClassOf,C2).
+node_subsumer_nondir(C1,C2,0.95,subClassOf) :-
+        rdfs_subclass_of(C1,C2),
+        \+ rdf(C1,rdfs:subClassOf,C2).
+
+
+
+
+
+% TODO: ontology subsumption
+
+invert(equivalentTo,equivalentTo).
+invert(subClassOf,superClassOf).
+invert(superClassOf,subClassOf).
+
+
+
+sort_best(L,Best) :-
+        sort(L,LS),
+        reverse(LS,[Best|_]).
+
 
 %% pair_match(?Class1, ?Class2, ?SharedVal, Info) is nondet
 %
@@ -568,6 +711,7 @@ pair_match(C1,C2,V,Info) :-
         \+ excluded(C1,C2),
         C1\=C2.
 pair_match(C1,C2) :- pair_match(C1,C2,_,_).
+
 
 pair_cmatch(C1,C2,V,Info) :-
         rdf_global_id(C1,C1x),
@@ -938,7 +1082,7 @@ obj_has_prefix(C,P) :- obj(C),has_prefix(C,P).
 
 :- table has_prefix/2.
 has_prefix(C,P) :- atomic(C), rdf_global_id(P:_, C).
-has_prefix(C,P) :- atomic(C), \+ rdf_global_id(_:_, C), concat_atom([P,_],:,C).
+has_prefix(C,P) :- atomic(C), \+ rdf_global_id(_:_, C), concat_atom([P,_],:,C), P\=http.
 has_prefix(P:_,P).
 
 %% unmatched(?Cls) is nondet.
@@ -1256,6 +1400,9 @@ category_label(C,N) :-
         !.
 category_label(C,N) :-
         literal_atom(C,N),
+        !.
+category_label(C,N) :-
+        atom_concat('https://w3id.org/biolink/vocab/', N, C),
         !.
 category_label(C,C).
 

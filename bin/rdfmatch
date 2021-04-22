@@ -358,6 +358,29 @@ run([match|_Args], Opts) :-
         G = inter_pair_match(_,_,_,_Info),
         write_all_results(G,Opts).
 
+run([submatch|_Args], Opts) :-
+        forall(inter_pair_subsumer_match(C1,C2,Pred,Score,[min_ixn(0)]),
+               
+               (   obj_label(C1,C1N),
+                   obj_label(C2,C2N),
+                   has_prefix(C1,C1Src),
+                   has_prefix(C2,C2Src),
+
+                   Vals=[
+                         subject_id=C1,
+                         subject_label=C1N,
+                         predicate_id=Pred,
+                         object_id=C2,
+                         object_label=C2N,
+                         match_type='Lexical',
+                         subject_source=C1Src,
+                         object_source=C2Src,
+                         mapping_tool=rdf_matcher,
+                         confidence=Score,
+                         comment='.'
+                        ],
+                   write_vals(Vals,Opts))).
+
 run([intra_match|_Args], Opts) :-
         G = intra_pair_match(X,_,_,_Info),
         write_all_results_old(X,G,Opts).
@@ -765,18 +788,20 @@ wrule(R) :-
         format('~q.~n',[R2]).
 
 load_terms_from_file(File) :-
-        csv_read_file(File,Rows,[]),
-        forall(member(Row,Rows),
-               assert_class_from_row(Row)).
+        read_file_to_string(File,Str,[]),
+        term_to_atom(Str,A),
+        concat_atom(Lines,'\n',A),
+        maplist(assert_class_from_line,Lines).
 
 make_terms_from_list(AList) :-
         concat_atom(Terms,'|',AList),
         forall(member(T,Terms),
-               assert_class_from_row(t(T))).
+               assert_class_from_line(T)).
 
-assert_class_from_row(Row) :-
-        Row =.. [_Pred,Term|_],
+assert_class_from_line(Str) :-
+        term_to_atom(Str,Term),
         rdf_global_id(external_resource:Term,URI),
+        debug(terms,'Adding term: "~q" with URI: ~q',[Term,URI]),
         rdf_assert(URI,rdfs:label,Term@en),
         rdf_assert(URI,rdf:type,owl:'Class').
 
