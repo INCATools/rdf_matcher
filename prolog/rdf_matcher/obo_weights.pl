@@ -25,6 +25,7 @@ weight(-1, [predicate_id='owl:equivalentClass', any_match_field='oio:hasNarrowSy
 weight(-1, [predicate_id='owl:equivalentClass', any_match_field='oio:hasBroadSynonym']).
 
 % lexical is lower, stemmming even lower
+weight(-2.0, [predicate_id='owl:equivalentClass', match_type=['Lexical','Flattening']]).
 weight(-1.0, [predicate_id='owl:equivalentClass', match_type=['Lexical','Stemming']]).
 weight(-0.5, [predicate_id='owl:equivalentClass', match_type=['Lexical']]).
 

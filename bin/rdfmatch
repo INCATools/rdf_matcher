@@ -194,6 +194,24 @@ wmain(Argv) :-
           longflags([obsoletes]),
           help('If set, include obsoletes in results')
          ],
+         [opt(min_weight),
+          type(float),
+          default(0.0),
+          longflags([min_weight]),
+          help('Minimum weight. Currently only used in submatch')
+         ],
+         [opt(min_individual_weight),
+          type(float),
+          default(4.0),
+          longflags([min_individual_weight]),
+          help('Minimum weight for any submatch. Currently only used in submatch')
+         ],
+         [opt(min_ixn),
+          type(integer),
+          default(1),
+          longflags([min_ixn]),
+          help('Minimum number of intersections. Currently only used in submatch')
+         ],
          [opt(show),
           type(boolean),
           default(false),
@@ -359,7 +377,7 @@ run([match|_Args], Opts) :-
         write_all_results(G,Opts).
 
 run([submatch|_Args], Opts) :-
-        forall(inter_pair_subsumer_match(C1,C2,Pred,W,N1,N2,[min_ixn(1)]),
+        forall(inter_pair_subsumer_match(C1,C2,Pred,W,N1,N2,Opts),
                
                (   obj_label(C1,C1N),
                    obj_label(C2,C2N),
@@ -629,6 +647,10 @@ all_conditions_match([C|Cs],Vals,Body) :-
         member(C,Vals),
         all_conditions_match(Cs,Vals,Body).
 
+match_types(stem,['Lexical','Stemming']) :- !.
+match_types(tokenset,['Lexical','Flattening']) :- !.
+match_types(_,['Lexical']) :- !.
+
 write_sssom_row(Row,Opts) :-
         Row =.. [_,Sub,Obj,M,Info|_Args],
         Info=info(_,rdf(_,SubP,_SubV)-rdf(_,ObjP,_ObjV),Step),
@@ -640,10 +662,7 @@ write_sssom_row(Row,Opts) :-
         obj_label(Obj,ObjLabel),
         entity_category(Sub,SubCat),
         entity_category(Obj,ObjCat),
-        BaseType='Lexical',
-        (   Step=stem
-        ->  Types=[BaseType,'Stemming']
-        ;   Types=[BaseType]),
+        match_types(Step,Types),
         categorize_match(Sub,Obj,MatchCat),
         option(match_predicate(Pred),Opts,owl:equivalentClass),
         Vals1=[

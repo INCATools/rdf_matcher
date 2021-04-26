@@ -29,7 +29,7 @@ showall(G) :-
 show_tp(N1,N2,MPred,[Min,Max]) :-
         show_tp(N1,N2,MPred,[Min,Max],_).
 show_tp(N1,N2,MPred,[Min,Max],MaxScore) :-
-        Opts=[min_score(-8)],
+        Opts=[min_weight(-8)],
         format('T: ~w <-> ~w // ~w~n',[N1,N2,MPred]),
         assert(fail_test(N1,N2,Pred)),
         nb_setval(max_score,-99),
@@ -49,7 +49,7 @@ show_tp(N1,N2,MPred,[Min,Max],MaxScore) :-
         assertion( \+ fail_test(N1,N2,Pred) ).
 
 show_cp(X1,X2,MPred,[Min,Max]) :-
-        Opts=[min_score(-8)],
+        Opts=[min_weight(-8)],
         rdf_global_id(X1,C1),
         rdf_global_id(X2,C2),
         format('TC: ~w <-> ~w  Expect: ~w~n',[C1,C2,MPred]),

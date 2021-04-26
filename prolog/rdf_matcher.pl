@@ -607,22 +607,29 @@ term_pair_subsumer_match(N1,N2,Pred,Score,Opts) :-
         mytok(N2,Toks2),
         sort(Toks1,Set1),
         sort(Toks2,Set2),
+        % find tokens in common
         tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U),
         length(Ixn,NumIxn),
         debug(subsumer,'~q <-> ~q :: Ixn=~q',[Set1,Set2,Ixn]),
         myopt(min_ixn(MinIxn),Opts,0),
         NumIxn >= MinIxn,
-        findall(match(X,X,equivalentTo,W),(member(X,Ixn),identical_match_weight(X,W)),Matches1),
+        findall(match(X,X,equivalentTo,W),
+                (   member(X,Ixn),
+                    identical_match_weight(X,W)),
+                Matches1),
+        
         debug(subsumer,'  Matches1 :: ~q',[Matches1]),
-        tokens_subsumers(Set1U,Set2U,Matches2),
+        tokens_subsumers(Set1U,Set2U,Matches2,Opts),
         append(Matches1,Matches2,Matches),
         debug(subsumer,'  Matches :: ~q',[Matches]),
         member(Pred,[subClassOf,superClassOf,equivalentTo]),
         %\+ \+ member(match(_,_,Pred,_),Matches),
         findall(W,(member(M,Matches),smatch_weight(M,Pred,W)),Weights),
-        debug(subsumer,'  Weights :: ~q in ~w vs ~w',[Weights,N1,N2]),
+        debug(subsumer,'  Weights :: ~q in ~w --vs-- ~w',[Weights,N1,N2]),
+        myopt(min_individual_weight(MinIndWeight),Opts,-99),
+        forall(member(W,Weights),W>MinIndWeight),
         sum_list(Weights,Score),
-        myopt(min_score(MinScore),Opts,0),
+        myopt(min_weight(MinScore),Opts,0),
         Score > MinScore.
 
 
@@ -651,27 +658,42 @@ nomatch_weight(X,W) :-
         W is -log(Len + 1).
 
 
+%! tokens_intersections(+Set1,+Set2,?Ixn,?Set1U,?Set2U) is det
+%
 tokens_intersections(Set1,Set2,Ixn,Set1U,Set2U) :-
         ord_intersection(Set1,Set2,Ixn),
         ord_subtract(Set1,Ixn,Set1U),
         ord_subtract(Set2,Ixn,Set2U).
-tokens_subsumers([],Set2,Matches) :-
+
+%! tokens_subsumers(+Set1,+Set2,?Matches,Opts) is det
+%
+tokens_subsumers([],Set2,Matches,_Opts) :-
         !,
         findall(nomatch_right(X),member(X,Set2),Matches).
-tokens_subsumers(Set1,Set2,[Match|Matches]) :-
+tokens_subsumers(Set1,Set2,[Match|Matches],Opts) :-
         select(E1,Set1,Set1R),
         best_subsumer(E1,Set2,Set2R,Match),
         !,
-        tokens_subsumers(Set1R,Set2R,Matches).
-tokens_subsumers(Set1,Set2,[nomatch_left(E1)|Matches]) :-
+        tokens_subsumers(Set1R,Set2R,Matches,Opts).
+tokens_subsumers(Set1,Set2,[nomatch_left(E1)|Matches],Opts) :-
         select(E1,Set1,Set1R),
-        tokens_subsumers(Set1R,Set2,Matches).
+        !,
+        tokens_subsumers(Set1R,Set2,Matches,Opts).
 
+%! best_subsumer(+E1,+Set2,?Set2R,?Match) is det.
+best_subsumer(E1,Set2,Set2R,match(E1,E2,equivalentTo,2)) :-
+        % if matches an ontology class no need to check further
+        cls_lexform(C,E1),
+        select(E2,Set2,Set2R),
+        cls_lexform(C,E2),
+        !.
 best_subsumer(E1,Set2,Set2R,Match) :-
         findall(Score-Match,(member(E2,Set2),token_subsumer(E1,E2,Score,Match)),Matches),
         sort_best(Matches,_-Match),
         match(_,E2,_,_) = Match,
-        select(E2,Set2,Set2R).
+        select(E2,Set2,Set2R),
+        !.
+
 
 %:- table token_subsumer/4.
 token_subsumer(E1,E2,S,match(E1,E2,Rel,S)) :-
@@ -685,10 +707,10 @@ token_subsumer_nondir(E1,E2,Score,superClassOf) :-
         atom_length(E2,Len),
         Extra is log(MLen),  % longer matches better
         Score is ((MLen / Len) - 0.5) + Extra.
-token_subsumer_nondir(E1,E2,Score,equivalentTo) :-
+token_subsumer_nondir(E1,E2,W,equivalentTo) :-
         isub(E1,E2,true,Score),
         Score > 0.5,
-        debug(subsumer,'xxxxxxxxxxISUB ~q <-> ~q = ~w',[E1,E2,Score]).
+        W is Score - 1.
 token_subsumer_nondir(E1,E2,2,equivalentTo) :-
         cls_lexform(C,E1),
         cls_lexform(C,E2).
@@ -697,6 +719,7 @@ token_subsumer_nondir(E1,E2,Score,Rel) :-
         cls_lexform(C2,E2),
         node_subsumer_nondir(C1,C2,Score,Rel).
 
+:- table node_subsumer_nondir/4.
 node_subsumer_nondir(C1,C2,1.8,subClassOf) :-
         rdf(C1,rdfs:subClassOf,C2).
 node_subsumer_nondir(C1,C2,0.95,subClassOf) :-
